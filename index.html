@@ -1,0 +1,1244 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LINEスタンプメーカー 🟢</title>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', 'Hiragino Sans', 'Meiryo', sans-serif; background: #f0f4f8; color: #333; min-height: 100vh; }
+
+    .header { background: #06c755; color: white; padding: 12px 22px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 6px rgba(0,0,0,0.1); }
+    .header h1 { font-size: 19px; font-weight: 800; letter-spacing: 0.5px; }
+    .header-actions { display: flex; gap: 10px; align-items: center; }
+    .api-status { font-size: 11px; padding: 3px 11px; border-radius: 12px; font-weight: 700; }
+    .api-status.ok  { background: #00733a; color: #c7ffd6; }
+    .api-status.ng  { background: #6b3030; color: #ffaaaa; }
+
+    .container { max-width: 1200px; margin: 0 auto; padding: 22px; }
+
+    .card { background: white; border-radius: 10px; padding: 20px 22px; margin-bottom: 18px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+    .card-title { font-size: 15px; font-weight: 800; color: #06c755; margin-bottom: 14px; display: flex; align-items: center; gap: 7px; }
+    .card-title .num { background: #06c755; color: white; width: 22px; height: 22px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; }
+
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .form-grid-3 { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 14px; align-items: end; }
+    .form-group { margin-bottom: 12px; }
+    .form-group:last-child { margin-bottom: 0; }
+    .form-label { display: block; font-size: 12px; font-weight: 700; color: #555; margin-bottom: 5px; }
+    .form-input, .form-textarea, .form-select { width: 100%; padding: 9px 11px; border: 1.5px solid #ddd; border-radius: 7px; font-size: 13px; font-family: inherit; }
+    .form-input:focus, .form-textarea:focus, .form-select:focus { outline: none; border-color: #06c755; box-shadow: 0 0 0 3px rgba(6,199,85,0.15); }
+    .form-textarea { resize: vertical; min-height: 60px; line-height: 1.5; }
+
+    .radio-row { display: flex; gap: 8px; }
+    .radio-pill { flex: 1; padding: 9px 0; border: 1.5px solid #ddd; border-radius: 7px; text-align: center; cursor: pointer; font-size: 13px; font-weight: 600; background: white; user-select: none; }
+    .radio-pill:hover { border-color: #06c755; }
+    .radio-pill.active { background: #06c755; border-color: #06c755; color: white; }
+
+    .btn { padding: 10px 18px; border: none; border-radius: 7px; cursor: pointer; font-size: 13px; font-weight: 700; font-family: inherit; transition: all 0.15s; }
+    .btn:hover { transform: translateY(-1px); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+    .btn-primary { background: #06c755; color: white; }
+    .btn-primary:hover { background: #05a847; }
+    .btn-secondary { background: #f0f0f0; color: #444; }
+    .btn-secondary:hover { background: #e4e4e4; }
+    .btn-danger { background: #fee2e2; color: #c0392b; }
+    .btn-sm { padding: 5px 11px; font-size: 11px; font-weight: 600; }
+    .btn-icon { padding: 5px 9px; font-size: 11px; }
+
+    .actions-bar { display: flex; gap: 10px; justify-content: flex-end; margin-top: 14px; align-items: center; flex-wrap: wrap; }
+    .actions-bar .info { font-size: 12px; color: #888; margin-right: auto; }
+
+    table.stamp-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    table.stamp-table th { background: #f7faf8; padding: 10px 8px; text-align: left; font-weight: 700; color: #555; border-bottom: 2px solid #06c755; font-size: 12px; }
+    table.stamp-table td { padding: 8px; border-bottom: 1px solid #f0f0f0; vertical-align: top; }
+    table.stamp-table tr:hover { background: #fafdfb; }
+    table.stamp-table input, table.stamp-table textarea { width: 100%; padding: 5px 7px; border: 1px solid transparent; border-radius: 5px; font-size: 13px; font-family: inherit; background: transparent; }
+    table.stamp-table input:focus, table.stamp-table textarea:focus { outline: none; border-color: #06c755; background: white; box-shadow: 0 0 0 2px rgba(6,199,85,0.12); }
+    table.stamp-table textarea { resize: vertical; min-height: 32px; line-height: 1.4; }
+    table.stamp-table .col-no { width: 38px; text-align: center; font-weight: 700; color: #888; }
+    table.stamp-table .col-act { width: 76px; text-align: center; }
+
+    .stamps-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px; }
+    .stamp-card { background: white; border: 1.5px solid #eee; border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 7px; }
+    .stamp-card .stamp-img { width: 100%; aspect-ratio: 1/1; background: repeating-conic-gradient(#f5f5f5 0% 25%, white 0% 50%) 50% / 16px 16px; border-radius: 7px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+    .stamp-card .stamp-img img { width: 100%; height: 100%; object-fit: contain; }
+    .stamp-card .stamp-placeholder { font-size: 32px; opacity: 0.3; }
+    .stamp-card .stamp-status { font-size: 11px; color: #888; }
+    .stamp-card .stamp-status.gen { color: #f39c12; font-weight: 700; }
+    .stamp-card .stamp-status.done { color: #06c755; font-weight: 700; }
+    .stamp-card .stamp-status.err { color: #c0392b; font-weight: 700; }
+    .stamp-card .stamp-caption { font-size: 13px; font-weight: 700; color: #333; text-align: center; }
+    .stamp-card .stamp-actions { display: flex; gap: 5px; }
+    .stamp-card .stamp-actions .btn { flex: 1; }
+
+    .spinner { display: inline-block; width: 11px; height: 11px; border: 2px solid rgba(255,255,255,0.4); border-top-color: white; border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: middle; margin-right: 4px; }
+    .spinner-dark { border-color: rgba(0,0,0,0.2); border-top-color: #06c755; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .modal-bg { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4); align-items: center; justify-content: center; z-index: 100; }
+    .modal-bg.open { display: flex; }
+    .modal { background: white; border-radius: 12px; padding: 26px; max-width: 480px; width: 90%; }
+    .modal h2 { font-size: 17px; margin-bottom: 16px; color: #06c755; }
+    .modal .note { font-size: 11px; color: #888; margin-top: 8px; line-height: 1.6; }
+    .modal-actions { display: flex; gap: 9px; justify-content: flex-end; margin-top: 18px; }
+
+    .empty { text-align: center; padding: 30px 20px; color: #aaa; font-size: 13px; }
+    .empty .icon { font-size: 36px; margin-bottom: 8px; opacity: 0.5; }
+
+    .hint { background: #e7f8ee; border-left: 3px solid #06c755; padding: 11px 14px; font-size: 12px; color: #2a6b40; border-radius: 6px; margin-bottom: 14px; line-height: 1.6; }
+    .hint strong { display: block; margin-bottom: 3px; }
+
+    .progress-bar { height: 6px; background: #eee; border-radius: 3px; overflow: hidden; margin-top: 6px; }
+    .progress-bar > div { height: 100%; background: #06c755; transition: width 0.3s; }
+
+    /* Reference image upload */
+    .ref-zone { display: flex; align-items: center; gap: 14px; padding: 12px; border: 2px dashed #ccc; border-radius: 8px; background: #fafafa; transition: all 0.15s; }
+    .ref-zone.has-image { border-style: solid; border-color: #06c755; background: #f5fdf8; }
+    .ref-zone.dragover { border-color: #06c755; background: #e7f8ee; }
+    .ref-zone .ref-thumb { width: 80px; height: 80px; border-radius: 6px; background: repeating-conic-gradient(#f5f5f5 0% 25%, white 0% 50%) 50% / 12px 12px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; border: 1px solid #ddd; }
+    .ref-zone .ref-thumb img { width: 100%; height: 100%; object-fit: contain; }
+    .ref-zone .ref-thumb-empty { font-size: 26px; opacity: 0.4; }
+    .ref-zone .ref-info { flex: 1; font-size: 12px; color: #666; line-height: 1.6; }
+    .ref-zone .ref-info strong { color: #06c755; }
+    .ref-zone .ref-actions { display: flex; gap: 7px; flex-shrink: 0; }
+    .ref-zone input[type=file] { display: none; }
+
+    /* Per-stamp custom prompt expand */
+    .stamp-custom { display: none; }
+    .stamp-custom.open { display: block; }
+    .stamp-custom textarea { width: 100%; min-height: 50px; padding: 6px 8px; font-size: 11px; border: 1px solid #ddd; border-radius: 5px; font-family: inherit; resize: vertical; }
+    .stamp-custom textarea:focus { outline: none; border-color: #06c755; }
+    .stamp-card .stamp-ref-thumb { width: 100%; aspect-ratio: 4/1; background: repeating-conic-gradient(#f5f5f5 0% 25%, white 0% 50%) 50% / 8px 8px; border-radius: 4px; border: 1px solid #eee; display: flex; align-items: center; justify-content: center; overflow: hidden; margin-top: 4px; position: relative; }
+    .stamp-card .stamp-ref-thumb img { max-height: 100%; max-width: 100%; object-fit: contain; }
+    .stamp-card .stamp-ref-thumb .x { position: absolute; top: 2px; right: 2px; background: rgba(0,0,0,0.5); color: white; border: none; width: 16px; height: 16px; border-radius: 50%; font-size: 10px; cursor: pointer; padding: 0; line-height: 1; }
+
+    /* History strip */
+    .history-strip { display: flex; gap: 10px; overflow-x: auto; padding: 4px 2px 10px; }
+    .history-card { flex: 0 0 140px; background: white; border: 1.5px solid #eee; border-radius: 9px; padding: 8px; display: flex; flex-direction: column; gap: 5px; }
+    .history-card .history-thumb { width: 100%; aspect-ratio: 1/1; background: repeating-conic-gradient(#f5f5f5 0% 25%, white 0% 50%) 50% / 12px 12px; border-radius: 5px; display: flex; align-items: center; justify-content: center; overflow: hidden; font-size: 26px; opacity: 0.9; }
+    .history-card .history-thumb img { width: 100%; height: 100%; object-fit: contain; }
+    .history-card .history-name { font-size: 11px; font-weight: 700; color: #333; line-height: 1.3; max-height: 2.6em; overflow: hidden; text-overflow: ellipsis; }
+    .history-card .history-meta { font-size: 10px; color: #888; }
+    .history-card .history-actions { display: flex; gap: 4px; }
+    .history-card .history-actions .btn { flex: 1; padding: 5px 4px; font-size: 10px; min-height: 0; }
+
+    /* ============ Mobile (≤768px) ============ */
+    @media (max-width: 768px) {
+      .header { padding: 10px 14px; }
+      .header h1 { font-size: 15px; }
+      .header-actions .btn-sm { padding: 7px 10px; }
+
+      .container { padding: 12px; }
+      .card { padding: 14px 14px; margin-bottom: 12px; }
+      .card-title { font-size: 14px; }
+      .hint { font-size: 11px; padding: 10px 12px; }
+
+      /* Forms: 1 column */
+      .form-grid, .form-grid-3 { grid-template-columns: 1fr; gap: 12px; }
+      .form-grid-3 > div:nth-child(2) { display: none; }
+      .form-grid-3 button { width: 100%; padding: 13px; font-size: 14px; }
+
+      /* iOS auto-zoom prevention: input font >= 16px */
+      .form-input, .form-textarea, .form-select { font-size: 16px; padding: 11px 12px; }
+
+      .radio-pill { padding: 12px 0; font-size: 14px; }
+
+      /* Buttons: bigger touch targets */
+      .btn { padding: 12px 16px; font-size: 14px; min-height: 42px; }
+      .btn-sm { padding: 9px 12px; font-size: 12px; min-height: 36px; }
+
+      /* Reference image zone: stack vertically */
+      .ref-zone { flex-direction: column; align-items: stretch; gap: 10px; padding: 14px; }
+      .ref-zone .ref-thumb { width: 100%; height: 140px; }
+      .ref-zone .ref-info { text-align: center; font-size: 12px; }
+      .ref-zone .ref-actions { justify-content: center; flex-wrap: wrap; }
+      .ref-zone .ref-actions .btn { flex: 1; min-width: 0; }
+
+      /* 写真への忠実度 row: stack */
+      #refStrengthSelect { width: 100%; font-size: 14px; padding: 10px 12px; }
+
+      /* Actions bar (generate / zip): stack */
+      .actions-bar { flex-direction: column; align-items: stretch; gap: 8px; }
+      .actions-bar .info { margin-right: 0; text-align: center; }
+      .actions-bar .btn { width: 100%; }
+
+      /* Captions table → vertical card layout */
+      table.stamp-table thead { display: none; }
+      table.stamp-table, table.stamp-table tbody { display: block; width: 100%; }
+      table.stamp-table tr { display: block; background: white; border: 1px solid #e0e0e0; border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; }
+      table.stamp-table tr:hover { background: white; }
+      table.stamp-table td { display: block; border: none; padding: 6px 0; min-height: 0; }
+      table.stamp-table td.col-no { padding: 0 0 6px 0; font-size: 14px; color: #06c755; font-weight: 800; text-align: left; width: auto; border-bottom: 1px dashed #e0e0e0; margin-bottom: 6px; }
+      table.stamp-table td.col-no::before { content: 'スタンプ #'; font-weight: 700; }
+      table.stamp-table td[data-label] { padding-left: 0; }
+      table.stamp-table td[data-label]::before {
+        content: attr(data-label);
+        display: block;
+        font-size: 11px; font-weight: 700; color: #888; margin-bottom: 3px;
+      }
+      table.stamp-table td.col-act { text-align: right; width: auto; padding-top: 4px; }
+      table.stamp-table input, table.stamp-table textarea { font-size: 16px; padding: 9px 10px; border: 1px solid #e0e0e0; background: #fafafa; }
+
+      /* Stamps grid: 2 columns */
+      .stamps-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+      .stamp-card { padding: 8px; gap: 5px; }
+      .stamp-card .stamp-caption { font-size: 12px; }
+      .stamp-card .stamp-actions { flex-wrap: wrap; gap: 4px; }
+      .stamp-card .stamp-actions .btn { padding: 8px 4px; font-size: 11px; min-height: 36px; flex: 1; min-width: 40px; }
+      .stamp-custom textarea, .stamp-custom select { font-size: 14px; }
+
+      /* Modal */
+      .modal { padding: 20px; }
+      .modal h2 { font-size: 16px; }
+      .modal-actions .btn { flex: 1; }
+    }
+
+    /* ============ Very small phones (≤420px) ============ */
+    @media (max-width: 420px) {
+      .stamps-grid { grid-template-columns: 1fr; }
+      .header h1 { font-size: 14px; }
+      .api-status { font-size: 10px; padding: 2px 7px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>🟢 LINEスタンプメーカー</h1>
+    <div class="header-actions">
+      <span class="api-status" id="apiStatus">API未設定</span>
+      <button class="btn btn-secondary btn-sm" onclick="openSettings()">⚙ 設定</button>
+    </div>
+  </div>
+
+  <div class="container">
+
+    <div class="hint">
+      <strong>📌 使い方</strong>
+      ① テーマ・キャラを入力 → ② セリフ案を作る → ③ 表で確認・編集 → ④ 一括で画像生成 → ⑤ ZIPでダウンロード。<br>
+      人気LINEスタンプの定番セリフ（おはよう/ありがとう/おつかれ等）が自動で組み込まれます。
+    </div>
+
+    <!-- 保存済みセット履歴 -->
+    <div class="card">
+      <div class="card-title" style="justify-content:space-between;display:flex;width:100%">
+        <span style="display:flex;align-items:center;gap:7px"><span class="num">📚</span>保存済みスタンプセット</span>
+        <button class="btn btn-primary btn-sm" onclick="saveCurrentSet()" id="saveSetBtn" disabled>💾 現在のセットを保存</button>
+      </div>
+      <div id="historyArea"><div class="empty" style="padding:14px"><div style="font-size:12px;color:#aaa">まだ保存されたセットはありません。画像を生成したら「💾現在のセットを保存」で保存できます。</div></div></div>
+    </div>
+
+    <!-- 入力フォーム -->
+    <div class="card">
+      <div class="card-title"><span class="num">1</span>キャラ・テーマ設定</div>
+      <div class="form-grid">
+        <div class="form-group">
+          <label class="form-label">テーマ <span style="color:#c0392b">*</span></label>
+          <input type="text" class="form-input" id="themeInput" placeholder="例：会社員の柴犬、猫好きOL、飼い主と犬の日常">
+        </div>
+        <div class="form-group">
+          <label class="form-label">アートスタイル</label>
+          <select class="form-select" id="styleInput"></select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">キャラクター設定（見た目・性格・口調など／任意）</label>
+        <textarea class="form-textarea" id="charInput" placeholder="例：丸顔の柴犬、語尾に「だワン」をつけがち、ちょっと内気だけど明るい"></textarea>
+      </div>
+      <div class="form-grid-3">
+        <div class="form-group" style="margin-bottom:0">
+          <label class="form-label">スタンプ個数</label>
+          <div class="radio-row">
+            <div class="radio-pill active" data-count="8" onclick="setCount(8)">8個</div>
+            <div class="radio-pill" data-count="16" onclick="setCount(16)">16個</div>
+          </div>
+        </div>
+        <div></div>
+        <div>
+          <button class="btn btn-primary" id="genCaptionsBtn" onclick="generateCaptions()" style="width:100%">✏️ セリフ案を作る</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- セリフ案テーブル -->
+    <div class="card">
+      <div class="card-title"><span class="num">2</span>セリフ案（編集できます）</div>
+      <div id="captionsArea">
+        <div class="empty">
+          <div class="icon">📝</div>
+          上の「セリフ案を作る」を押してください
+        </div>
+      </div>
+    </div>
+
+    <!-- 参考画像（任意） -->
+    <div class="card">
+      <div class="card-title"><span class="num">3</span>参考画像（任意・全スタンプ共通のベース）</div>
+      <div class="ref-zone" id="refZone" ondragover="event.preventDefault(); this.classList.add('dragover')" ondragleave="this.classList.remove('dragover')" ondrop="onRefDrop(event)">
+        <div class="ref-thumb" id="refThumb"><span class="ref-thumb-empty">🖼</span></div>
+        <div class="ref-info" id="refInfo">
+          画像をドラッグ＆ドロップ、または「画像を選ぶ」<br>
+          <strong>アップした画像のキャラ・絵柄・雰囲気を基に全スタンプを生成</strong>します。<br>
+          <span style="color:#888">※ 透過PNG・JPG・WebP対応。50MBまで。</span>
+        </div>
+        <div class="ref-actions">
+          <input type="file" id="refFile" accept="image/*" onchange="onRefFile(event)">
+          <button class="btn btn-secondary btn-sm" onclick="document.getElementById('refFile').click()">📁 画像を選ぶ</button>
+          <button class="btn btn-danger btn-sm" onclick="clearRefImage()" id="refClearBtn" style="display:none">✕ 解除</button>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;margin-top:10px;padding:0 4px;flex-wrap:wrap">
+        <label style="font-size:12px;font-weight:700;color:#555">📷 写真への忠実度</label>
+        <select id="refStrengthSelect" onchange="state.refStrength = this.value; save();" style="padding:6px 10px;border:1.5px solid #ddd;border-radius:6px;font-size:12px;font-family:inherit">
+          <option value="exact">そっくり（写真ほぼそのまま・表情と文字だけ変更）</option>
+          <option value="high">かなり似せる（同じキャラだとすぐ分かる）※推奨</option>
+          <option value="medium">中くらい（特徴は残しつつイラスト化）</option>
+          <option value="low">雰囲気のみ（色味だけ参考）</option>
+        </select>
+        <span style="font-size:11px;color:#888">※「そっくり」を選ぶとアートスタイルは無視され、写真の見た目が優先されます</span>
+      </div>
+    </div>
+
+    <!-- 画像生成 -->
+    <div class="card">
+      <div class="card-title"><span class="num">4</span>スタンプ画像</div>
+      <div class="actions-bar" style="margin-top:0; margin-bottom:14px">
+        <div class="info" id="genInfo"></div>
+        <button class="btn btn-secondary btn-sm" onclick="exportToFolder()" id="folderBtn" disabled style="display:none">📂 フォルダに保存</button>
+        <button class="btn btn-secondary btn-sm" onclick="downloadZip()" id="zipBtn" disabled>📦 ZIPでまとめてDL</button>
+        <button class="btn btn-primary btn-sm" onclick="generateAllImages()" id="genAllBtn" disabled>🎨 全スタンプ画像を一括生成</button>
+      </div>
+      <div id="stampsArea">
+        <div class="empty">
+          <div class="icon">🎨</div>
+          セリフ案を作ったあと、画像生成ボタンを押してください
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 設定モーダル -->
+  <div class="modal-bg" id="settingsModal">
+    <div class="modal">
+      <h2>⚙ API設定</h2>
+      <div class="form-group">
+        <label class="form-label">OpenAI APIキー</label>
+        <input type="password" class="form-input" id="apiKeyInput" placeholder="sk-...">
+      </div>
+      <div class="note">
+        ・キーはこのブラウザのlocalStorageにのみ保存され、外部に送信されません。<br>
+        ・<strong>gpt-4o-mini</strong>（セリフ生成）と <strong>gpt-image-1</strong>（画像生成・背景透過対応）を使用します。<br>
+        ・gpt-image-1 (medium) は約 $0.04/枚。8個生成で約 $0.32 です。<br>
+        ・<strong>初回はOpenAIで Organization Verification（本人確認）が必須</strong>です。失敗する場合は platform.openai.com → Settings → Organization → General で確認してください。
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="closeSettings()">キャンセル</button>
+        <button class="btn btn-primary" onclick="saveSettings()">保存</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+// ========== State ==========
+const state = {
+  apiKey: '',
+  theme: '',
+  character: '',
+  style: 'シンプル線画・パステル',
+  count: 8,
+  captions: [],     // [{ text, emotion, composition, customPrompt, refImage:{name,dataUrl,blob}|null, image, status, error }]
+  generatingCaptions: false,
+  refImage: null,   // { name, dataUrl, blob } — global reference applied to all stamps
+  refStrength: 'high', // 'exact' | 'high' | 'medium' | 'low' — how closely to follow the reference
+};
+
+function load() {
+  try {
+    const d = JSON.parse(localStorage.getItem('lineStampMaker') || '{}');
+    state.apiKey    = d.apiKey    || '';
+    state.theme     = d.theme     || '';
+    state.character = d.character || '';
+    state.style     = d.style     || state.style;
+    state.count     = d.count     || 8;
+    state.refStrength = d.refStrength || 'high';
+    state.captions  = (d.captions || []).map(c => ({
+      text: c.text || '',
+      emotion: c.emotion || '',
+      composition: c.composition || '',
+      customPrompt: c.customPrompt || '',
+      customStyle: c.customStyle || '',
+      refImage: null,
+      image: null,
+      status: 'idle',
+      error: null,
+    }));
+  } catch (e) {}
+}
+
+function save() {
+  // Images (base64) are NOT persisted — they're large and blow out localStorage quota.
+  // Captions text/emotion/composition are kept; users can re-generate images after reload.
+  const lightCaptions = state.captions.map(c => ({
+    text: c.text,
+    emotion: c.emotion,
+    composition: c.composition,
+    customPrompt: c.customPrompt || '',
+    customStyle: c.customStyle || '',
+  }));
+  try {
+    localStorage.setItem('lineStampMaker', JSON.stringify({
+      apiKey: state.apiKey,
+      theme: state.theme,
+      character: state.character,
+      style: state.style,
+      count: state.count,
+      refStrength: state.refStrength,
+      captions: lightCaptions,
+    }));
+  } catch (e) {
+    console.warn('localStorage save failed (non-fatal):', e.message);
+  }
+}
+
+// ========== UI Helpers ==========
+function setCount(n) {
+  state.count = n;
+  document.querySelectorAll('[data-count]').forEach(el => {
+    el.classList.toggle('active', Number(el.dataset.count) === n);
+  });
+  save();
+}
+
+function refreshApiStatus() {
+  const el = document.getElementById('apiStatus');
+  if (state.apiKey) {
+    el.textContent = 'API設定済み';
+    el.className = 'api-status ok';
+  } else {
+    el.textContent = 'API未設定';
+    el.className = 'api-status ng';
+  }
+}
+
+function openSettings() {
+  document.getElementById('apiKeyInput').value = state.apiKey;
+  document.getElementById('settingsModal').classList.add('open');
+}
+function closeSettings() {
+  document.getElementById('settingsModal').classList.remove('open');
+}
+function saveSettings() {
+  state.apiKey = document.getElementById('apiKeyInput').value.trim();
+  save();
+  refreshApiStatus();
+  closeSettings();
+}
+
+// ========== Input bindings ==========
+function bindInputs() {
+  const t = document.getElementById('themeInput');
+  const c = document.getElementById('charInput');
+  const s = document.getElementById('styleInput');
+  // Populate style dropdown from STYLE_OPTIONS
+  s.innerHTML = Object.keys(STYLE_OPTIONS).map(k =>
+    `<option value="${k}" ${k === state.style ? 'selected' : ''}>${k}</option>`
+  ).join('');
+  t.value = state.theme;
+  c.value = state.character;
+  if (!STYLE_OPTIONS[state.style]) state.style = Object.keys(STYLE_OPTIONS)[0];
+  s.value = state.style;
+  t.addEventListener('input', () => { state.theme = t.value; save(); });
+  c.addEventListener('input', () => { state.character = c.value; save(); });
+  s.addEventListener('change', () => { state.style = s.value; save(); });
+  document.querySelectorAll('[data-count]').forEach(el => {
+    el.classList.toggle('active', Number(el.dataset.count) === state.count);
+  });
+  const rs = document.getElementById('refStrengthSelect');
+  if (rs) rs.value = state.refStrength || 'high';
+}
+
+// ========== Reference image (global + per-stamp) ==========
+function onRefFile(e) {
+  const file = e.target.files[0];
+  if (file) setRefImageFromFile(file);
+  e.target.value = '';
+}
+
+function onRefDrop(e) {
+  e.preventDefault();
+  document.getElementById('refZone').classList.remove('dragover');
+  const file = e.dataTransfer.files[0];
+  if (file && file.type.startsWith('image/')) setRefImageFromFile(file);
+}
+
+async function setRefImageFromFile(file) {
+  if (file.size > 50 * 1024 * 1024) { alert('画像は50MB以下にしてください'); return; }
+  const dataUrl = await new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onloadend = () => res(r.result);
+    r.onerror = rej;
+    r.readAsDataURL(file);
+  });
+  state.refImage = { name: file.name, dataUrl, blob: file };
+  renderRefImage();
+}
+
+function clearRefImage() {
+  state.refImage = null;
+  renderRefImage();
+}
+
+function renderRefImage() {
+  const thumb = document.getElementById('refThumb');
+  const info  = document.getElementById('refInfo');
+  const clr   = document.getElementById('refClearBtn');
+  const zone  = document.getElementById('refZone');
+  if (state.refImage) {
+    thumb.innerHTML = `<img src="${state.refImage.dataUrl}" alt="ref">`;
+    info.innerHTML = `<strong>📎 ${escHtml(state.refImage.name)}</strong> をベースに全スタンプを生成します<br><span style="color:#888">※ 個別カードで別の参考画像を指定するとそちらが優先されます</span>`;
+    clr.style.display = '';
+    zone.classList.add('has-image');
+  } else {
+    thumb.innerHTML = `<span class="ref-thumb-empty">🖼</span>`;
+    info.innerHTML = `画像をドラッグ＆ドロップ、または「画像を選ぶ」<br><strong>アップした画像のキャラ・絵柄・雰囲気を基に全スタンプを生成</strong>します。<br><span style="color:#888">※ 透過PNG・JPG・WebP対応。50MBまで。</span>`;
+    clr.style.display = 'none';
+    zone.classList.remove('has-image');
+  }
+}
+
+async function setStampRefImage(i, file) {
+  if (file.size > 50 * 1024 * 1024) { alert('画像は50MB以下にしてください'); return; }
+  const dataUrl = await new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onloadend = () => res(r.result);
+    r.onerror = rej;
+    r.readAsDataURL(file);
+  });
+  state.captions[i].refImage = { name: file.name, dataUrl, blob: file };
+  renderStamps();
+}
+
+function onStampRefFile(i, e) {
+  const file = e.target.files[0];
+  if (file) setStampRefImage(i, file);
+  e.target.value = '';
+}
+
+function clearStampRefImage(i) {
+  state.captions[i].refImage = null;
+  renderStamps();
+}
+
+function toggleCustom(i) {
+  const el = document.getElementById(`custom-${i}`);
+  if (el) el.classList.toggle('open');
+}
+
+function updateCustomPrompt(i, value) {
+  state.captions[i].customPrompt = value;
+  save();
+}
+
+function updateCustomStyle(i, value) {
+  state.captions[i].customStyle = value;
+  save();
+  renderStamps();
+}
+
+// ========== Caption generation (GPT-4o-mini) ==========
+// 表示名 → 英語の具体的なアート指示
+const STYLE_OPTIONS = {
+  'シンプル線画・パステル':   'minimalist line art illustration, thin clean black outlines, soft pastel pink/cream/sky-blue flat fills, no shading, lots of negative space',
+  'ふんわり水彩':              'soft watercolor painting, visible watercolor paper texture, gentle color bleeding and gradients, no hard outlines, hand-painted feel',
+  'ポップ・ビビッド':          'bold pop-art illustration, very vivid saturated primary colors, thick chunky black outlines, halftone dot shading, comic-book vibe',
+  'レトロ・昭和風':            'Showa-era retro Japanese illustration, muted dusty vintage palette (mustard, brick red, olive), slight paper grain, nostalgic 1970s look',
+  'ゆるかわキャラ風':          'super-deformed yurukyara mascot style, chibi proportions, oversized round head, tiny body, very simple cute face, mascot logo feel',
+  'ステッカー・ロゴ風':        'die-cut vector sticker, clean flat vector shapes, bold solid colors, thick white outline border around the character, sticker pack aesthetic',
+  '写真リアル':                'photorealistic rendering, like a real photograph, natural lighting, true-to-life details and textures',
+  'アニメ・マンガ風':          'Japanese anime / manga illustration, clean cel shading, expressive sparkly eyes, sharp linework, vibrant anime palette',
+  '3D立体・トイ風':            '3D rendered character, soft volumetric studio lighting, smooth glossy plastic toy / Pixar look, subtle ambient occlusion',
+  '油絵・厚塗り':              'thick impasto oil painting, visible chunky brush strokes, rich textured colors, painterly fine art look',
+  '色鉛筆スケッチ':            'colored pencil sketch on white paper, soft grainy texture, hand-drawn lines, hatching shading, sketchbook feel',
+  'ピクセルアート':            '16-bit pixel art, low resolution chunky pixels, limited retro game palette, no anti-aliasing, sprite-sheet style',
+};
+
+const POPULAR_PHRASES = [
+  'おはよう', 'おやすみ', 'ありがとう', 'ごめん', 'OK・了解',
+  'おつかれ', 'がんばれ', '大笑い', '泣き', '怒り', '照れ', '寝てる',
+  'えーっ驚き', '考え中', 'いいね！', '行ってきます'
+];
+
+async function generateCaptions() {
+  if (!state.apiKey) { alert('OpenAI APIキーを設定してください'); openSettings(); return; }
+  if (!state.theme.trim()) { alert('テーマを入力してください'); return; }
+
+  state.generatingCaptions = true;
+  const btn = document.getElementById('genCaptionsBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>生成中...';
+
+  const phrases = POPULAR_PHRASES.slice(0, state.count);
+
+  const systemPrompt = `あなたは人気LINEスタンプの企画者です。LINEで実際に使われる定番セリフ（おはよう/ありがとう/おつかれ/ごめん/了解/がんばれ/泣き/笑い/怒り など）を中心に、ユーザーのテーマに合った${state.count}個のスタンプ案を作ります。
+出力は必ずJSON。{"stamps":[{"text":"セリフ（10文字以内・短く・吹き出し風）","emotion":"表情・感情","composition":"構図メモ（ポーズ・カメラ）"}, ...]} の形式。
+ルール：
+- 必ず${state.count}個。
+- セリフはLINEで使いやすい短文。1個は「ありがとう」、1個は「おつかれ」、1個は「OK」「了解」「はい」のどれか を必ず含める。
+- 感情を意図的にバラけさせる（喜・怒・哀・楽・照れ・驚き・眠気 など）。
+- 実在キャラ・芸能人・ブランド名は避ける。`;
+
+  const userPrompt = `テーマ：${state.theme}
+キャラクター設定：${state.character || '（指定なし／テーマからAIが補完）'}
+アートスタイル：${state.style}
+個数：${state.count}個
+
+参考にしたい人気の場面ワード：${phrases.join('、')}
+
+これに基づいて${state.count}個のスタンプ案をJSONで出してください。`;
+
+  try {
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${state.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        response_format: { type: 'json_object' },
+        temperature: 0.9,
+      }),
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`API error ${res.status}: ${errText.slice(0, 200)}`);
+    }
+    const data = await res.json();
+    const content = data.choices[0].message.content;
+    const parsed = JSON.parse(content);
+    const stamps = parsed.stamps || parsed.list || parsed.data || [];
+    if (!Array.isArray(stamps) || stamps.length === 0) {
+      throw new Error('セリフ案の取得に失敗しました');
+    }
+
+    state.captions = stamps.slice(0, state.count).map(s => ({
+      text: s.text || s.セリフ || '',
+      emotion: s.emotion || s.表情 || s.感情 || '',
+      composition: s.composition || s.構図 || s.構図メモ || '',
+      customPrompt: '',
+      customStyle: '',
+      refImage: null,
+      image: null,
+      status: 'idle',
+      error: null,
+    }));
+    save();
+    renderCaptions();
+    renderStamps();
+  } catch (e) {
+    alert('セリフ案の生成に失敗しました：\n' + e.message);
+  } finally {
+    state.generatingCaptions = false;
+    btn.disabled = false;
+    btn.innerHTML = '✏️ セリフ案を作る';
+  }
+}
+
+function renderCaptions() {
+  const area = document.getElementById('captionsArea');
+  if (!state.captions.length) {
+    area.innerHTML = `<div class="empty"><div class="icon">📝</div>上の「セリフ案を作る」を押してください</div>`;
+    document.getElementById('genAllBtn').disabled = true;
+    return;
+  }
+  let html = `<table class="stamp-table">
+    <thead><tr>
+      <th class="col-no">#</th>
+      <th style="width:22%">セリフ</th>
+      <th style="width:22%">表情・感情</th>
+      <th>構図メモ</th>
+      <th class="col-act">操作</th>
+    </tr></thead><tbody>`;
+  state.captions.forEach((c, i) => {
+    html += `<tr>
+      <td class="col-no">${i + 1}</td>
+      <td data-label="セリフ"><input type="text" value="${escAttr(c.text)}" oninput="updateCaption(${i},'text',this.value)"></td>
+      <td data-label="表情・感情"><input type="text" value="${escAttr(c.emotion)}" oninput="updateCaption(${i},'emotion',this.value)"></td>
+      <td data-label="構図メモ"><textarea oninput="updateCaption(${i},'composition',this.value)">${escHtml(c.composition)}</textarea></td>
+      <td class="col-act"><button class="btn btn-secondary btn-icon" onclick="regenerateCaption(${i})" title="この行だけ作り直す">🔄 作り直す</button></td>
+    </tr>`;
+  });
+  html += `</tbody></table>`;
+  area.innerHTML = html;
+  document.getElementById('genAllBtn').disabled = false;
+}
+
+function escHtml(s) { return (s ?? '').toString().replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
+function escAttr(s) { return (s ?? '').toString().replace(/"/g, '&quot;').replace(/</g, '&lt;'); }
+
+function updateCaption(i, field, value) {
+  state.captions[i][field] = value;
+  save();
+}
+
+async function regenerateCaption(i) {
+  if (!state.apiKey) { alert('APIキー未設定'); openSettings(); return; }
+  const existing = state.captions.map((c, idx) => idx === i ? null : c.text).filter(Boolean);
+  const sys = `LINEスタンプのセリフを1つだけ作り直します。JSONで返す：{"text":"...", "emotion":"...", "composition":"..."}。セリフは10文字以内・短く・既出と被らない。`;
+  const usr = `テーマ：${state.theme} / キャラ：${state.character || '指定なし'} / スタイル：${state.style}\n既出セリフ：${existing.join('、')}\n感情の被りも避けて、新しい1案を。`;
+  try {
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${state.apiKey}` },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [{ role: 'system', content: sys }, { role: 'user', content: usr }],
+        response_format: { type: 'json_object' },
+        temperature: 1.0,
+      }),
+    });
+    const data = await res.json();
+    const c = JSON.parse(data.choices[0].message.content);
+    const prev = state.captions[i] || {};
+    state.captions[i] = {
+      text: c.text || '',
+      emotion: c.emotion || '',
+      composition: c.composition || '',
+      customPrompt: prev.customPrompt || '',
+      customStyle: prev.customStyle || '',
+      refImage: prev.refImage || null,
+      image: null,
+      status: 'idle',
+      error: null,
+    };
+    save();
+    renderCaptions();
+    renderStamps();
+  } catch (e) {
+    alert('行の再生成に失敗しました：' + e.message);
+  }
+}
+
+// ========== Image generation (DALL-E 3) ==========
+function buildImagePrompt(c) {
+  const usingRef = c.refImage || state.refImage;
+  const effectiveStyleKey = (c.customStyle && c.customStyle.trim()) ? c.customStyle : state.style;
+  const styleDesc = STYLE_OPTIONS[effectiveStyleKey] || effectiveStyleKey;
+
+  // === Reference fidelity ===
+  let refBlock = '';
+  if (usingRef) {
+    const strength = state.refStrength || 'high';
+    if (strength === 'exact') {
+      // 写真そっくり — photo-faithful, almost untouched
+      refBlock = `CRITICAL — REFERENCE FIDELITY: PHOTO-EXACT.
+The output must look like the reference photo itself. Preserve the EXACT same subject, face, fur/skin details, clothing, colors, lighting, and overall photographic look. Do NOT illustrate or stylize. The ONLY changes allowed are: (1) adjust the facial expression / pose slightly to match the sticker emotion below, (2) overlay the Japanese caption text as a sticker caption. Keep everything else photographically identical to the reference.
+Ignore the art-style description below — preserve the original photo style of the reference.`;
+    } else if (strength === 'high') {
+      refBlock = `CRITICAL — REFERENCE FIDELITY: HIGH.
+The character MUST clearly look like the same subject as the reference image. Match the reference's face shape, body proportions, fur/hair color and pattern, clothing, and accessories EXACTLY. Anyone seeing both images must instantly recognize it as the same character. Only the pose and expression change to fit the sticker.
+Render in the art style described below.`;
+    } else if (strength === 'medium') {
+      refBlock = `REFERENCE FIDELITY: MEDIUM.
+Use the reference image as inspiration for the character's identity and color palette, but allow the art style below to lead. Keep recognizable key features (species, dominant colors, distinctive markings).`;
+    } else {
+      refBlock = `REFERENCE FIDELITY: LOW.
+Borrow only the overall mood and color palette from the reference. The character may be freely reinterpreted in the art style below.`;
+    }
+  }
+
+  const customLine = c.customPrompt ? `Per-stamp extra instruction: ${c.customPrompt}` : '';
+  const photoLike = usingRef && (state.refStrength === 'exact' || state.refStrength === 'high');
+
+  // Put STYLE first and strong. Drop the hardcoded "bold outlines / flat colors" that
+  // forced every output to look the same regardless of style choice.
+  return `${refBlock}
+
+ART STYLE (this is the dominant visual direction — strictly follow):
+${styleDesc}
+
+Subject: ${state.theme}. ${state.character || ''}
+This is a Japanese LINE messenger sticker. Single subject centered on a fully transparent background (no scenery, no background elements at all).
+Emotion / facial expression: ${c.emotion}.
+Pose / composition: ${c.composition}.
+${customLine}
+
+Caption text: include the Japanese text "${c.text}" rendered as a clean sticker caption inside the image. The Japanese characters must be spelled correctly and clearly readable. Style the caption to match the overall art style above (do not default to a generic comic font if the style is e.g. watercolor or photorealistic).
+
+${photoLike ? '' : 'Exaggerate the expression for sticker readability. Leave generous padding/margin around the subject.'}
+Square 1:1 composition. NO copyrighted characters or brand logos. NO violence or sexual content.`;
+}
+
+async function generateOneImage(i) {
+  const c = state.captions[i];
+  c.status = 'gen';
+  c.error = null;
+  renderStamps();
+
+  const refBlob = (c.refImage && c.refImage.blob) || (state.refImage && state.refImage.blob);
+  const useEdit = !!refBlob;
+
+  try {
+    let res;
+    if (useEdit) {
+      // /v1/images/edits — multipart with reference image
+      const fd = new FormData();
+      fd.append('model', 'gpt-image-1');
+      fd.append('prompt', buildImagePrompt(c));
+      fd.append('n', '1');
+      fd.append('size', '1024x1024');
+      fd.append('quality', 'medium');
+      fd.append('background', 'transparent');
+      fd.append('output_format', 'png');
+      fd.append('image', refBlob, refBlob.name || 'ref.png');
+      res = await fetch('https://api.openai.com/v1/images/edits', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${state.apiKey}` },
+        body: fd,
+      });
+    } else {
+      res = await fetch('https://api.openai.com/v1/images/generations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${state.apiKey}` },
+        body: JSON.stringify({
+          model: 'gpt-image-1',
+          prompt: buildImagePrompt(c),
+          n: 1,
+          size: '1024x1024',
+          quality: 'medium',
+          background: 'transparent',
+          output_format: 'png',
+        }),
+      });
+    }
+    const raw = await res.text();
+    if (!res.ok) {
+      let parsedErr = '';
+      try {
+        const j = JSON.parse(raw);
+        parsedErr = j.error?.message || j.error?.code || raw;
+      } catch (_) { parsedErr = raw; }
+      console.error(`[DALL-E #${i + 1}] HTTP ${res.status}:`, parsedErr);
+      throw new Error(`HTTP ${res.status}: ${parsedErr.slice(0, 280)}`);
+    }
+    const data = JSON.parse(raw);
+    const item = data.data && data.data[0];
+    if (!item) throw new Error('レスポンスにdataが含まれていません');
+    if (item.b64_json) {
+      c.image = item.b64_json;
+    } else if (item.url) {
+      // Fallback: convert URL to base64 via fetch
+      const imgRes = await fetch(item.url);
+      const blob = await imgRes.blob();
+      c.image = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result.split(',')[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    } else {
+      throw new Error('画像データ(b64_json/url)が見つかりません');
+    }
+    c.status = 'done';
+    save();
+  } catch (e) {
+    console.error(`[DALL-E #${i + 1}] failed:`, e);
+    c.status = 'err';
+    c.error = e.message || String(e);
+  }
+  renderStamps();
+}
+
+async function generateAllImages() {
+  if (!state.apiKey) { alert('APIキー未設定'); openSettings(); return; }
+  if (!state.captions.length) return;
+  const btn = document.getElementById('genAllBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>生成中...';
+
+  const CONCURRENCY = 3;
+  const indices = state.captions.map((_, i) => i);
+  let cursor = 0;
+  try {
+    const workers = [];
+    for (let w = 0; w < CONCURRENCY; w++) {
+      workers.push((async () => {
+        while (cursor < indices.length) {
+          const i = indices[cursor++];
+          try {
+            await generateOneImage(i);
+          } catch (e) {
+            console.error(`worker error on #${i + 1}:`, e);
+            state.captions[i].status = 'err';
+            state.captions[i].error = e.message || String(e);
+          }
+          try { updateGenInfo(); } catch (_) {}
+          try { renderStamps(); } catch (_) {}
+        }
+      })());
+    }
+    await Promise.all(workers);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '🎨 全スタンプ画像を一括生成';
+    refreshZipBtn();
+  }
+
+  const errs = state.captions.filter(c => c.status === 'err');
+  const dones = state.captions.filter(c => c.status === 'done').length;
+  if (errs.length && dones === 0) {
+    alert('全ての画像生成が失敗しました。\n\n最初のエラー：\n' + errs[0].error + '\n\nブラウザのコンソール(F12)も確認してください。\n\n【よくある原因】\n・OpenAIアカウントの本人確認(Verification)未完了 → 「Organization verification」が必要\n・課金設定/クレジット残高不足\n・APIキーが画像生成権限を持たないProject Key');
+  } else if (errs.length) {
+    console.warn(`${errs.length}件失敗。各カードの赤いエラー文を確認してください。`);
+  }
+}
+
+function updateGenInfo() {
+  const done = state.captions.filter(c => c.status === 'done').length;
+  const err  = state.captions.filter(c => c.status === 'err').length;
+  const gen  = state.captions.filter(c => c.status === 'gen').length;
+  document.getElementById('genInfo').innerHTML =
+    `完了 ${done}/${state.captions.length}` +
+    (gen ? ` ／ <span style="color:#f39c12">生成中 ${gen}</span>` : '') +
+    (err ? ` ／ <span style="color:#c0392b">失敗 ${err}</span>` : '');
+}
+
+function refreshZipBtn() {
+  const anyDone = state.captions.some(c => c.image);
+  document.getElementById('zipBtn').disabled = !anyDone;
+  refreshFolderBtn();
+  refreshSaveBtn();
+}
+
+function renderStamps() {
+  const area = document.getElementById('stampsArea');
+  if (!state.captions.length) {
+    area.innerHTML = `<div class="empty"><div class="icon">🎨</div>セリフ案を作ったあと、画像生成ボタンを押してください</div>`;
+    document.getElementById('zipBtn').disabled = true;
+    document.getElementById('genInfo').innerHTML = '';
+    refreshFolderBtn();
+    refreshSaveBtn();
+    return;
+  }
+  let html = `<div class="stamps-grid">`;
+  state.captions.forEach((c, i) => {
+    const num = String(i + 1).padStart(2, '0');
+    let imgHtml = '';
+    if (c.status === 'done' && c.image) {
+      imgHtml = `<img src="data:image/png;base64,${c.image}" alt="${escAttr(c.text)}">`;
+    } else if (c.status === 'gen') {
+      imgHtml = `<div style="display:flex;flex-direction:column;align-items:center;gap:6px;"><span class="spinner spinner-dark"></span><span style="font-size:11px;color:#888">生成中…</span></div>`;
+    } else if (c.status === 'err') {
+      imgHtml = `<div style="font-size:10px;color:#c0392b;padding:8px;text-align:center;line-height:1.4;overflow:auto;max-height:100%;word-break:break-all" title="${escAttr(c.error || '')}"><strong>失敗</strong><br>${escHtml((c.error || '').slice(0, 200))}</div>`;
+    } else {
+      imgHtml = `<div class="stamp-placeholder">🖼</div>`;
+    }
+    const statusLabel =
+      c.status === 'done' ? `<span class="stamp-status done">✓ 完了</span>` :
+      c.status === 'gen'  ? `<span class="stamp-status gen">生成中</span>` :
+      c.status === 'err'  ? `<span class="stamp-status err">失敗</span>` :
+                            `<span class="stamp-status">未生成</span>`;
+    const customOpen = (c.customPrompt || c.customStyle) ? 'open' : '';
+    const styleOpts = Object.keys(STYLE_OPTIONS).map(s => `<option value="${escAttr(s)}" ${c.customStyle === s ? 'selected' : ''}>${escHtml(s)}</option>`).join('');
+    const styleBadge = c.customStyle ? `<div style="font-size:10px;color:#06c755;text-align:center;margin-top:2px">🎨 ${escHtml(c.customStyle)}</div>` : '';
+    const refIndicator = c.refImage
+      ? `<div class="stamp-ref-thumb"><img src="${c.refImage.dataUrl}"><button class="x" onclick="clearStampRefImage(${i})" title="個別参考画像を解除">✕</button></div>`
+      : (state.refImage ? `<div style="font-size:10px;color:#06c755;text-align:center;margin-top:2px">📎 全体の参考画像を使用</div>` : '');
+    html += `<div class="stamp-card">
+      <div class="stamp-img">${imgHtml}</div>
+      <div class="stamp-caption">${num}. ${escHtml(c.text)}</div>
+      <div style="font-size:11px;color:#888;text-align:center">${escHtml(c.emotion)}</div>
+      ${statusLabel}
+      ${refIndicator}
+      ${styleBadge}
+      <div class="stamp-custom ${customOpen}" id="custom-${i}">
+        <select onchange="updateCustomStyle(${i}, this.value)" style="width:100%;padding:5px 7px;font-size:11px;border:1px solid #ddd;border-radius:5px;font-family:inherit;margin-bottom:5px">
+          <option value="">（全体スタイルを使用）</option>
+          ${styleOpts}
+        </select>
+        <textarea placeholder="このスタンプだけの追加指示（任意）：例『笑顔で両手を上げる』『青色の服にする』" oninput="updateCustomPrompt(${i}, this.value)">${escHtml(c.customPrompt || '')}</textarea>
+      </div>
+      <div class="stamp-actions">
+        <button class="btn btn-secondary btn-sm" onclick="generateOneImage(${i})" ${c.status === 'gen' ? 'disabled' : ''}>${c.image ? '🔄' : '🎨'}</button>
+        <button class="btn btn-secondary btn-sm" onclick="toggleCustom(${i})" title="個別指示">✏️</button>
+        <input type="file" id="stampRefFile-${i}" accept="image/*" style="display:none" onchange="onStampRefFile(${i}, event)">
+        <button class="btn btn-secondary btn-sm" onclick="document.getElementById('stampRefFile-${i}').click()" title="参考画像（このスタンプだけ）">🖼</button>
+        ${c.image ? `<button class="btn btn-secondary btn-sm" onclick="downloadOne(${i})" title="ダウンロード">⬇</button>` : ''}
+      </div>
+    </div>`;
+  });
+  html += `</div>`;
+  area.innerHTML = html;
+  updateGenInfo();
+  refreshZipBtn();
+}
+
+// ========== Download ==========
+function b64ToBlob(b64, mime = 'image/png') {
+  const bin = atob(b64);
+  const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return new Blob([arr], { type: mime });
+}
+
+function downloadOne(i) {
+  const c = state.captions[i];
+  if (!c.image) return;
+  const blob = b64ToBlob(c.image);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${String(i + 1).padStart(2, '0')}_${safeName(c.text)}.png`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function safeName(s) {
+  return (s || 'stamp').replace(/[\\/:*?"<>|\s]+/g, '_').slice(0, 30);
+}
+
+async function downloadZip() {
+  const done = state.captions.filter(c => c.image);
+  if (!done.length) return;
+  const zip = new JSZip();
+  state.captions.forEach((c, i) => {
+    if (!c.image) return;
+    const name = `${String(i + 1).padStart(2, '0')}_${safeName(c.text)}.png`;
+    zip.file(name, c.image, { base64: true });
+  });
+  const blob = await zip.generateAsync({ type: 'blob' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const stamp = new Date().toISOString().slice(0, 10);
+  a.download = `line-stamps_${safeName(state.theme)}_${stamp}.zip`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ========== IndexedDB (history of full sets including images) ==========
+let _idb = null;
+function idbInit() {
+  if (_idb) return Promise.resolve(_idb);
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('lineStampMakerDB', 1);
+    req.onupgradeneeded = e => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains('sets')) db.createObjectStore('sets', { keyPath: 'id' });
+    };
+    req.onsuccess = () => { _idb = req.result; resolve(_idb); };
+    req.onerror = () => reject(req.error);
+  });
+}
+async function idbSaveSet(name) {
+  const db = await idbInit();
+  const set = {
+    id: Date.now(),
+    name: name,
+    savedAt: new Date().toISOString(),
+    theme: state.theme, character: state.character, style: state.style,
+    count: state.count, refStrength: state.refStrength,
+    refImageDataUrl: state.refImage ? state.refImage.dataUrl : null,
+    refImageName: state.refImage ? state.refImage.name : null,
+    captions: state.captions.map(c => ({
+      text: c.text, emotion: c.emotion, composition: c.composition,
+      customPrompt: c.customPrompt || '', customStyle: c.customStyle || '',
+      image: c.image || null,
+    })),
+  };
+  return new Promise((res, rej) => {
+    const tx = db.transaction('sets', 'readwrite');
+    tx.objectStore('sets').put(set);
+    tx.oncomplete = () => res(set);
+    tx.onerror = () => rej(tx.error);
+  });
+}
+async function idbListSets() {
+  const db = await idbInit();
+  return new Promise((res, rej) => {
+    const tx = db.transaction('sets', 'readonly');
+    const req = tx.objectStore('sets').getAll();
+    req.onsuccess = () => res(req.result.sort((a, b) => b.id - a.id));
+    req.onerror = () => rej(req.error);
+  });
+}
+async function idbGetSet(id) {
+  const db = await idbInit();
+  return new Promise((res, rej) => {
+    const tx = db.transaction('sets', 'readonly');
+    const req = tx.objectStore('sets').get(id);
+    req.onsuccess = () => res(req.result);
+    req.onerror = () => rej(req.error);
+  });
+}
+async function idbDeleteSet(id) {
+  const db = await idbInit();
+  return new Promise((res, rej) => {
+    const tx = db.transaction('sets', 'readwrite');
+    tx.objectStore('sets').delete(id);
+    tx.oncomplete = () => res();
+    tx.onerror = () => rej(tx.error);
+  });
+}
+
+// ========== History UI ==========
+async function saveCurrentSet() {
+  if (!state.captions.length) { alert('保存する内容がありません'); return; }
+  const def = (state.theme || '無題') + ' ' + new Date().toLocaleString('ja-JP', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+  const name = prompt('セット名を入力してください', def);
+  if (name === null) return;
+  try {
+    await idbSaveSet(name.trim() || def);
+    await renderHistory();
+    alert('✓ 保存しました');
+  } catch (e) {
+    alert('保存に失敗：' + e.message);
+  }
+}
+
+async function renderHistory() {
+  let sets;
+  try { sets = await idbListSets(); }
+  catch (e) { console.error(e); return; }
+  const area = document.getElementById('historyArea');
+  if (!sets.length) {
+    area.innerHTML = `<div class="empty" style="padding:14px"><div style="font-size:12px;color:#aaa">まだ保存されたセットはありません。画像を生成したら「💾現在のセットを保存」で保存できます。</div></div>`;
+    return;
+  }
+  let html = `<div class="history-strip">`;
+  for (const s of sets) {
+    const firstImg = s.captions.find(c => c.image);
+    let thumbSrc = null;
+    if (firstImg) thumbSrc = `data:image/png;base64,${firstImg.image}`;
+    else if (s.refImageDataUrl) thumbSrc = s.refImageDataUrl;
+    const dones = s.captions.filter(c => c.image).length;
+    const date = new Date(s.savedAt).toLocaleDateString('ja-JP', { month: '2-digit', day: '2-digit' });
+    html += `<div class="history-card">
+      <div class="history-thumb">${thumbSrc ? `<img src="${thumbSrc}">` : '🎨'}</div>
+      <div class="history-name" title="${escAttr(s.name)}">${escHtml(s.name)}</div>
+      <div class="history-meta">${dones}/${s.captions.length}枚・${date}</div>
+      <div class="history-actions">
+        <button class="btn btn-secondary" onclick="loadSet(${s.id})" title="復元">📂</button>
+        <button class="btn btn-danger" onclick="deleteSet(${s.id})" title="削除">🗑</button>
+      </div>
+    </div>`;
+  }
+  html += `</div>`;
+  area.innerHTML = html;
+}
+
+async function loadSet(id) {
+  if (state.captions.length && !confirm('現在の作業内容は破棄されます。読み込みますか？')) return;
+  const s = await idbGetSet(id);
+  if (!s) return;
+  state.theme = s.theme || '';
+  state.character = s.character || '';
+  state.style = s.style || state.style;
+  state.count = s.count || 8;
+  state.refStrength = s.refStrength || 'high';
+  // Restore ref image (dataUrl only — convert back to blob for re-use in API calls)
+  if (s.refImageDataUrl) {
+    const blob = await (await fetch(s.refImageDataUrl)).blob();
+    state.refImage = { name: s.refImageName || 'ref.png', dataUrl: s.refImageDataUrl, blob };
+  } else {
+    state.refImage = null;
+  }
+  state.captions = s.captions.map(c => ({
+    text: c.text, emotion: c.emotion, composition: c.composition,
+    customPrompt: c.customPrompt || '', customStyle: c.customStyle || '',
+    refImage: null,
+    image: c.image || null,
+    status: c.image ? 'done' : 'idle',
+    error: null,
+  }));
+  save();
+  bindInputs();
+  renderRefImage();
+  renderCaptions();
+  renderStamps();
+  refreshSaveBtn();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+async function deleteSet(id) {
+  if (!confirm('このセットを削除しますか？（元に戻せません）')) return;
+  await idbDeleteSet(id);
+  await renderHistory();
+}
+
+function refreshSaveBtn() {
+  const btn = document.getElementById('saveSetBtn');
+  if (btn) btn.disabled = !state.captions.length;
+}
+
+// ========== Folder export (File System Access API) ==========
+const FS_SUPPORTED = 'showDirectoryPicker' in window;
+
+async function exportToFolder() {
+  if (!FS_SUPPORTED) {
+    alert('お使いのブラウザはフォルダ書き出しに対応していません。\nChrome/Edge（PC版）でお試しください。\n代わりに「📦ZIPでまとめてDL」をお使いください。');
+    return;
+  }
+  const done = state.captions.filter(c => c.image);
+  if (!done.length) { alert('完成した画像がありません'); return; }
+  try {
+    const dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+    const folderName = `line-stamps_${safeName(state.theme || 'set')}_${new Date().toISOString().slice(0, 10)}`;
+    const sub = await dirHandle.getDirectoryHandle(folderName, { create: true });
+    let saved = 0;
+    for (let i = 0; i < state.captions.length; i++) {
+      const c = state.captions[i];
+      if (!c.image) continue;
+      const name = `${String(i + 1).padStart(2, '0')}_${safeName(c.text)}.png`;
+      const fh = await sub.getFileHandle(name, { create: true });
+      const w = await fh.createWritable();
+      await w.write(b64ToBlob(c.image));
+      await w.close();
+      saved++;
+    }
+    // meta.json
+    const metaHandle = await sub.getFileHandle('meta.json', { create: true });
+    const mw = await metaHandle.createWritable();
+    await mw.write(JSON.stringify({
+      theme: state.theme, character: state.character, style: state.style,
+      refStrength: state.refStrength, exportedAt: new Date().toISOString(),
+      captions: state.captions.map(c => ({ text: c.text, emotion: c.emotion, composition: c.composition })),
+    }, null, 2));
+    await mw.close();
+    alert(`✓ フォルダに ${saved}枚 + meta.json を保存しました：\n${folderName}/`);
+  } catch (e) {
+    if (e.name === 'AbortError') return;
+    alert('フォルダ書き出しに失敗：' + e.message);
+  }
+}
+
+function refreshFolderBtn() {
+  const btn = document.getElementById('folderBtn');
+  if (!btn) return;
+  if (FS_SUPPORTED) {
+    btn.style.display = '';
+    btn.disabled = !state.captions.some(c => c.image);
+  } else {
+    btn.style.display = 'none';
+  }
+}
+
+// ========== Init ==========
+load();
+bindInputs();
+refreshApiStatus();
+renderRefImage();
+renderCaptions();
+renderStamps();
+renderHistory();
+refreshSaveBtn();
+refreshFolderBtn();
+if (!state.apiKey) openSettings();
+</script>
+</body>
+</html>
