@@ -109,6 +109,11 @@
     .ref-zone .ref-actions { display: flex; gap: 7px; flex-shrink: 0; }
     .ref-zone input[type=file] { display: none; }
 
+    /* Crop tool（シートから1コマ切り抜き） */
+    #cropStage { display: inline-block; position: relative; max-width: 100%; line-height: 0; cursor: crosshair; touch-action: none; overflow: hidden; }
+    #cropImg { max-width: 100%; max-height: 58vh; display: block; -webkit-user-drag: none; user-select: none; }
+    #cropSel { position: absolute; border: 2px dashed #06c755; background: rgba(6,199,85,0.18); display: none; pointer-events: none; box-shadow: 0 0 0 9999px rgba(0,0,0,0.35); }
+
     /* Per-stamp custom prompt expand */
     .stamp-custom { display: none; }
     .stamp-custom.open { display: block; }
@@ -308,6 +313,7 @@
         <div class="ref-actions">
           <input type="file" id="refFile" accept="image/*" multiple onchange="onRefFile(event)">
           <button class="btn btn-secondary btn-sm" onclick="document.getElementById('refFile').click()">📁 画像を選ぶ</button>
+          <button class="btn btn-secondary btn-sm" onclick="openCropFromRef()" id="refCropBtn" style="display:none">✂ 1コマを切り抜く</button>
           <button class="btn btn-danger btn-sm" onclick="clearRefImage()" id="refClearBtn" style="display:none">✕ 解除</button>
         </div>
       </div>
@@ -360,6 +366,24 @@
       <div class="modal-actions">
         <button class="btn btn-secondary" onclick="closeSettings()">キャンセル</button>
         <button class="btn btn-primary" onclick="saveSettings()">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 切り抜きモーダル -->
+  <div class="modal-bg" id="cropModal">
+    <div class="modal" style="max-width:660px">
+      <h2>✂ シートから1コマを切り抜く</h2>
+      <div class="note" style="margin-top:0;margin-bottom:12px">使いたい1コマを<strong>ドラッグで囲んで</strong>「切り抜いて使う」を押してください。切り抜いた1コマが参考画像になります。</div>
+      <div style="text-align:center;background:#f4f4f4;border-radius:8px;padding:10px;">
+        <div id="cropStage" onmousedown="cropPointerDown(event)" onmousemove="cropPointerMove(event)" onmouseup="cropPointerUp(event)" ontouchstart="cropPointerDown(event)" ontouchmove="cropPointerMove(event)" ontouchend="cropPointerUp(event)">
+          <img id="cropImg" alt="crop source">
+          <div id="cropSel"></div>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="closeCrop()">キャンセル</button>
+        <button class="btn btn-primary" onclick="applyCrop()">✂ 切り抜いて使う</button>
       </div>
     </div>
   </div>
@@ -595,8 +619,10 @@ function renderRefImage() {
   const thumbs = document.getElementById('refThumbs');
   const info   = document.getElementById('refInfo');
   const clr    = document.getElementById('refClearBtn');
+  const cropBtn= document.getElementById('refCropBtn');
   const zone   = document.getElementById('refZone');
   const imgs   = state.refImages || [];
+  if (cropBtn) cropBtn.style.display = imgs.length ? '' : 'none';
   if (imgs.length) {
     let h = imgs.map((im, idx) =>
       `<div class="ref-thumb"><img src="${im.dataUrl}" alt="ref"><button class="ref-thumb-x" onclick="removeRefImage(${idx})" title="この画像を外す">✕</button></div>`
@@ -615,6 +641,76 @@ function renderRefImage() {
     zone.classList.remove('has-image');
   }
   updateStyleHint();
+}
+
+// ========== シートから1コマ切り抜き ==========
+let _crop = null;
+function openCropFromRef() {
+  const imgs = state.refImages || [];
+  if (!imgs.length) { alert('先に参考画像をアップしてください'); return; }
+  const src = imgs[0].dataUrl; // 複数ある場合は最初の1枚を対象に切り抜く
+  const img = document.getElementById('cropImg');
+  const sel = document.getElementById('cropSel');
+  sel.style.display = 'none';
+  _crop = { dragging: false, box: null };
+  img.src = src;
+  document.getElementById('cropModal').classList.add('open');
+}
+function closeCrop() {
+  document.getElementById('cropModal').classList.remove('open');
+  _crop = null;
+}
+function _cropXY(e) {
+  const stage = document.getElementById('cropStage');
+  const r = stage.getBoundingClientRect();
+  const t = e.touches && e.touches[0];
+  const cx = t ? t.clientX : e.clientX;
+  const cy = t ? t.clientY : e.clientY;
+  return {
+    x: Math.max(0, Math.min(cx - r.left, r.width)),
+    y: Math.max(0, Math.min(cy - r.top, r.height)),
+  };
+}
+function cropPointerDown(e) {
+  if (!_crop) return;
+  const p = _cropXY(e);
+  _crop.dragging = true; _crop.startX = p.x; _crop.startY = p.y; _crop.box = null;
+  const sel = document.getElementById('cropSel');
+  sel.style.display = 'block';
+  sel.style.left = p.x + 'px'; sel.style.top = p.y + 'px'; sel.style.width = '0px'; sel.style.height = '0px';
+  e.preventDefault();
+}
+function cropPointerMove(e) {
+  if (!_crop || !_crop.dragging) return;
+  const p = _cropXY(e);
+  const L = Math.min(p.x, _crop.startX), T = Math.min(p.y, _crop.startY);
+  const W = Math.abs(p.x - _crop.startX), H = Math.abs(p.y - _crop.startY);
+  const sel = document.getElementById('cropSel');
+  sel.style.left = L + 'px'; sel.style.top = T + 'px'; sel.style.width = W + 'px'; sel.style.height = H + 'px';
+  _crop.box = { L, T, W, H };
+  e.preventDefault();
+}
+function cropPointerUp() { if (_crop) _crop.dragging = false; }
+function applyCrop() {
+  const img = document.getElementById('cropImg');
+  const box = _crop && _crop.box;
+  if (!box || box.W < 5 || box.H < 5) { alert('切り抜く範囲をドラッグで囲んでください'); return; }
+  const dispW = img.clientWidth, dispH = img.clientHeight;
+  const sx = img.naturalWidth / dispW, sy = img.naturalHeight / dispH;
+  const cx = Math.round(box.L * sx), cy = Math.round(box.T * sy);
+  const cw = Math.max(1, Math.round(box.W * sx)), ch = Math.max(1, Math.round(box.H * sy));
+  const canvas = document.createElement('canvas');
+  canvas.width = cw; canvas.height = ch;
+  canvas.getContext('2d').drawImage(img, cx, cy, cw, ch, 0, 0, cw, ch);
+  canvas.toBlob(blob => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      state.refImages = [{ name: 'crop.png', dataUrl: reader.result, blob }];
+      renderRefImage();
+      closeCrop();
+    };
+    reader.readAsDataURL(blob);
+  }, 'image/png');
 }
 
 async function setStampRefImage(i, file) {
@@ -1467,6 +1563,8 @@ function refreshFolderBtn() {
 }
 
 // ========== Init ==========
+// ステージ外でマウスを離してもドラッグを終了させる
+window.addEventListener('mouseup', () => { if (_crop) _crop.dragging = false; });
 load();
 bindInputs();
 refreshApiStatus();
