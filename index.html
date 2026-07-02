@@ -338,6 +338,13 @@
         </select>
         <span style="font-size:11px;color:#888">※「そのまま同じ」「そっくり」を選ぶとアートスタイルは無視され、画像の見た目が優先されます</span>
       </div>
+      <div style="margin-top:10px;padding:0 4px">
+        <label style="font-size:12px;color:#555;display:inline-flex;align-items:center;gap:7px;cursor:pointer">
+          <input type="checkbox" id="bgRemoveChk" checked onchange="state.bgRemove=this.checked; save();">
+          <span>✂ 切り抜きを<strong>そのまま使う</strong>とき、<strong>白い背景を透明にする</strong>（LINE用・推奨）</span>
+        </label>
+        <div style="font-size:11px;color:#888;margin-top:3px;padding-left:24px">外周の白だけ消すので、白い服や目の白は残ります。うまく消えない時はオフにできます。</div>
+      </div>
     </div>
 
     <!-- 画像生成 -->
@@ -363,6 +370,16 @@
           <div class="icon">🎨</div>
           セリフ案を作ったあと、画像生成ボタンを押してください
         </div>
+      </div>
+
+      <div style="margin-top:18px;border-top:1px dashed #e0e0e0;padding-top:14px">
+        <div style="font-weight:800;color:#06c755;font-size:14px;margin-bottom:6px">🏷 LINE提出用：メイン画像・タブ画像</div>
+        <div style="font-size:12px;color:#888;margin-bottom:10px">LINEにはスタンプ本体（最大 <strong>370×320</strong>）に加えて、<strong>メイン画像 240×240</strong> と <strong>タブ画像 96×74</strong> が必要です。どのスタンプから作るか選んで「作成」。<strong>ZIPには自動で main.png / tab.png が入ります</strong>（スタンプ本体もLINEサイズに自動縮小されます）。</div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <select id="mainSrcSelect" class="form-select" style="max-width:280px"></select>
+          <button class="btn btn-primary btn-sm" onclick="makeLineImages()">🏷 メイン・タブ画像を作成</button>
+        </div>
+        <div id="lineImagesPreview" style="display:flex;gap:18px;margin-top:12px;flex-wrap:wrap"></div>
       </div>
     </div>
   </div>
@@ -424,6 +441,9 @@ const state = {
   generatingCaptions: false,
   refImages: [],    // [{ name, dataUrl, blob }] — global references applied to all stamps
   clips: [],        // [{ name, dataUrl, blob }] — シートから切り抜いた1コマ置き場（ドラッグで割り当て）
+  bgRemove: true,   // 切り抜きをそのまま使うとき、外周の白背景を透明化する（LINE用）
+  mainImage: null,  // LINE提出用メイン画像240×240（base64）
+  tabImage: null,   // LINE提出用タブ画像96×74（base64）
   refStrength: 'high', // 'exact' | 'high' | 'medium' | 'low' — how closely to follow the reference
 };
 
@@ -440,6 +460,7 @@ function load() {
     state.refStrength = d.refStrength || 'high';
     state.refImages = [];   // 参考画像はlocalStorageに保存しない（大きすぎるため）。IndexedDBのセット復元時のみ復活
     state.clips = [];       // 切り抜きトレイもセッション内のみ（保存しない）
+    state.bgRemove = d.bgRemove !== false; // 既定ON
     state.captions  = (d.captions || []).map(c => ({
       text: c.text || '',
       emotion: c.emotion || '',
@@ -474,6 +495,7 @@ function save() {
       tones: state.tones,
       captionMode: state.captionMode,
       refStrength: state.refStrength,
+      bgRemove: state.bgRemove,
       captions: lightCaptions,
     }));
   } catch (e) {
@@ -567,6 +589,8 @@ function bindInputs() {
   });
   const rs = document.getElementById('refStrengthSelect');
   if (rs) rs.value = state.refStrength || 'high';
+  const bg = document.getElementById('bgRemoveChk');
+  if (bg) bg.checked = state.bgRemove !== false;
   renderTonePills();
   updateStyleHint();
 }
@@ -1176,6 +1200,48 @@ ${photoLike ? '' : 'Exaggerate the expression for sticker readability. Leave gen
 Square 1:1 composition. NO copyrighted characters or brand logos. NO violence or sexual content.`;
 }
 
+// 外周（画像のふち）につながった白い部分だけを透明にする。
+// フラッドフィルなので、キャラの白い服・目の白など内側の白は消えない。
+function whiteToTransparent(dataUrl, tol) {
+  tol = tol || 236;
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const w = img.naturalWidth, h = img.naturalHeight;
+        const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+        const ctx = cv.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        const id = ctx.getImageData(0, 0, w, h);
+        const d = id.data;
+        const visited = new Uint8Array(w * h);
+        const stack = [];
+        const consider = (x, y) => {
+          if (x < 0 || y < 0 || x >= w || y >= h) return;
+          const p = y * w + x;
+          if (visited[p]) return;
+          visited[p] = 1;
+          const i = p * 4;
+          if (d[i] >= tol && d[i + 1] >= tol && d[i + 2] >= tol) { // 白に近い
+            d[i + 3] = 0; // 透明化
+            stack.push(p);
+          }
+        };
+        for (let x = 0; x < w; x++) { consider(x, 0); consider(x, h - 1); }
+        for (let y = 0; y < h; y++) { consider(0, y); consider(w - 1, y); }
+        while (stack.length) {
+          const p = stack.pop(); const x = p % w, y = (p / w) | 0;
+          consider(x + 1, y); consider(x - 1, y); consider(x, y + 1); consider(x, y - 1);
+        }
+        ctx.putImageData(id, 0, 0);
+        resolve(cv.toDataURL('image/png'));
+      } catch (e) { resolve(dataUrl); } // 失敗時は元画像のまま
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
+}
+
 async function generateOneImage(i) {
   const c = state.captions[i];
   c.status = 'gen';
@@ -1186,7 +1252,9 @@ async function generateOneImage(i) {
   // AIで描き直さず、その画像をそのままスタンプとして使う（文字も100%保持・無料・一瞬）
   if (state.refStrength === 'same' && c.refImage && c.refImage.dataUrl && c.refImage.dataUrl.indexOf(',') > -1) {
     try {
-      c.image = c.refImage.dataUrl.split(',')[1];
+      let dataUrl = c.refImage.dataUrl;
+      if (state.bgRemove) dataUrl = await whiteToTransparent(dataUrl);
+      c.image = dataUrl.split(',')[1];
       c.status = 'done';
       save();
     } catch (e) {
@@ -1423,6 +1491,7 @@ function renderStamps() {
   area.innerHTML = html;
   updateGenInfo();
   refreshZipBtn();
+  refreshMainSrcSelect();
 }
 
 // ========== Download ==========
@@ -1433,10 +1502,39 @@ function b64ToBlob(b64, mime = 'image/png') {
   return new Blob([arr], { type: mime });
 }
 
-function downloadOne(i) {
+// LINEスタンプ提出サイズ
+const LINE_SIZE = { stampW: 370, stampH: 320, mainW: 240, mainH: 240, tabW: 96, tabH: 74 };
+function b64src(b64) { return 'data:image/png;base64,' + b64; }
+
+// 画像をLINEサイズにリサイズしてbase64(png)を返す。
+// exact=false: 縦横比を保って maxW×maxH に収まる大きさに（余白なし）
+// exact=true : ちょうど maxW×maxH のキャンバスに中央配置（透明余白つき）
+function sizeImage(src, maxW, maxH, exact) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const iw = img.naturalWidth || 1, ih = img.naturalHeight || 1;
+        const scale = Math.min(maxW / iw, maxH / ih);
+        const dw = Math.max(1, Math.round(iw * scale)), dh = Math.max(1, Math.round(ih * scale));
+        const cw = exact ? maxW : dw, ch = exact ? maxH : dh;
+        const cv = document.createElement('canvas'); cv.width = cw; cv.height = ch;
+        const ctx = cv.getContext('2d');
+        ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, Math.round((cw - dw) / 2), Math.round((ch - dh) / 2), dw, dh);
+        resolve(cv.toDataURL('image/png').split(',')[1]);
+      } catch (e) { resolve(src.indexOf(',') > -1 ? src.split(',')[1] : src); }
+    };
+    img.onerror = () => resolve(src.indexOf(',') > -1 ? src.split(',')[1] : src);
+    img.src = src;
+  });
+}
+
+async function downloadOne(i) {
   const c = state.captions[i];
   if (!c.image) return;
-  const blob = b64ToBlob(c.image);
+  const b64 = await sizeImage(b64src(c.image), LINE_SIZE.stampW, LINE_SIZE.stampH, false);
+  const blob = b64ToBlob(b64);
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -1453,11 +1551,16 @@ async function downloadZip() {
   const done = state.captions.filter(c => c.image);
   if (!done.length) return;
   const zip = new JSZip();
-  state.captions.forEach((c, i) => {
-    if (!c.image) return;
+  for (let i = 0; i < state.captions.length; i++) {
+    const c = state.captions[i];
+    if (!c.image) continue;
+    const b64 = await sizeImage(b64src(c.image), LINE_SIZE.stampW, LINE_SIZE.stampH, false);
     const name = `${String(i + 1).padStart(2, '0')}_${safeName(c.text)}.png`;
-    zip.file(name, c.image, { base64: true });
-  });
+    zip.file(name, b64, { base64: true });
+  }
+  // メイン画像・タブ画像（作成済みなら同梱）
+  if (state.mainImage) zip.file('main.png', state.mainImage, { base64: true });
+  if (state.tabImage)  zip.file('tab.png',  state.tabImage,  { base64: true });
   const blob = await zip.generateAsync({ type: 'blob' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -1465,6 +1568,61 @@ async function downloadZip() {
   const stamp = new Date().toISOString().slice(0, 10);
   a.download = `line-stamps_${safeName(state.theme)}_${stamp}.zip`;
   a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ========== LINE提出用：メイン画像・タブ画像 ==========
+function refreshMainSrcSelect() {
+  const sel = document.getElementById('mainSrcSelect');
+  if (!sel) return;
+  const done = state.captions.map((c, i) => ({ c, i })).filter(o => o.c.image);
+  if (!done.length) {
+    sel.innerHTML = `<option value="">（先にスタンプ画像を作ってください）</option>`;
+    sel.disabled = true;
+    return;
+  }
+  sel.disabled = false;
+  const prev = sel.value;
+  sel.innerHTML = done.map(o =>
+    `<option value="${o.i}">スタンプ ${String(o.i + 1).padStart(2, '0')}. ${escHtml((o.c.text || '').slice(0, 12))}</option>`
+  ).join('');
+  if (prev && done.some(o => String(o.i) === prev)) sel.value = prev;
+}
+
+async function makeLineImages() {
+  const sel = document.getElementById('mainSrcSelect');
+  const idx = sel ? parseInt(sel.value, 10) : NaN;
+  const c = state.captions[idx];
+  if (!c || !c.image) { alert('メイン画像の元にするスタンプを選んでください（先にスタンプ画像を作成）'); return; }
+  const src = b64src(c.image);
+  state.mainImage = await sizeImage(src, LINE_SIZE.mainW, LINE_SIZE.mainH, true);
+  state.tabImage  = await sizeImage(src, LINE_SIZE.tabW,  LINE_SIZE.tabH,  true);
+  renderLineImages();
+}
+
+function renderLineImages() {
+  const box = document.getElementById('lineImagesPreview');
+  if (!box) return;
+  if (!state.mainImage && !state.tabImage) { box.innerHTML = ''; return; }
+  const cell = (title, spec, b64, fname) => `
+    <div style="text-align:center">
+      <div style="font-size:11px;font-weight:700;color:#555;margin-bottom:4px">${title}<br><span style="color:#888;font-weight:400">${spec}</span></div>
+      <div style="display:inline-block;background:repeating-conic-gradient(#f0f0f0 0% 25%, #fff 0% 50%) 50% / 12px 12px;border:1px solid #ddd;border-radius:6px;padding:4px">
+        <img src="${b64src(b64)}" style="display:block;max-width:120px;max-height:120px">
+      </div>
+      <div><button class="btn btn-secondary btn-sm" style="margin-top:6px" onclick="downloadLineImage('${fname}')">⬇ ${fname}</button></div>
+    </div>`;
+  box.innerHTML =
+    (state.mainImage ? cell('メイン画像', '240×240', state.mainImage, 'main.png') : '') +
+    (state.tabImage  ? cell('タブ画像',   '96×74',   state.tabImage,  'tab.png')  : '');
+}
+
+function downloadLineImage(fname) {
+  const b64 = fname === 'main.png' ? state.mainImage : state.tabImage;
+  if (!b64) return;
+  const url = URL.createObjectURL(b64ToBlob(b64));
+  const a = document.createElement('a');
+  a.href = url; a.download = fname; a.click();
   URL.revokeObjectURL(url);
 }
 
@@ -1645,11 +1803,20 @@ async function exportToFolder() {
       const c = state.captions[i];
       if (!c.image) continue;
       const name = `${String(i + 1).padStart(2, '0')}_${safeName(c.text)}.png`;
+      const b64 = await sizeImage(b64src(c.image), LINE_SIZE.stampW, LINE_SIZE.stampH, false);
       const fh = await sub.getFileHandle(name, { create: true });
       const w = await fh.createWritable();
-      await w.write(b64ToBlob(c.image));
+      await w.write(b64ToBlob(b64));
       await w.close();
       saved++;
+    }
+    // メイン画像・タブ画像（作成済みなら）
+    for (const [b64, fname] of [[state.mainImage, 'main.png'], [state.tabImage, 'tab.png']]) {
+      if (!b64) continue;
+      const fh = await sub.getFileHandle(fname, { create: true });
+      const w = await fh.createWritable();
+      await w.write(b64ToBlob(b64));
+      await w.close();
     }
     // meta.json
     const metaHandle = await sub.getFileHandle('meta.json', { create: true });
@@ -1688,6 +1855,8 @@ renderRefImage();
 renderClips();
 renderCaptions();
 renderStamps();
+refreshMainSrcSelect();
+renderLineImages();
 renderHistory();
 refreshSaveBtn();
 refreshFolderBtn();
