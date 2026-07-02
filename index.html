@@ -246,6 +246,7 @@
         <div class="form-group">
           <label class="form-label">アートスタイル</label>
           <select class="form-select" id="styleInput"></select>
+          <div id="styleHint" style="font-size:11px;color:#888;margin-top:5px;line-height:1.5"></div>
         </div>
       </div>
       <div class="form-group">
@@ -304,7 +305,7 @@
       </div>
       <div style="display:flex;align-items:center;gap:12px;margin-top:10px;padding:0 4px;flex-wrap:wrap">
         <label style="font-size:12px;font-weight:700;color:#555">📷 写真への忠実度</label>
-        <select id="refStrengthSelect" onchange="state.refStrength = this.value; save();" style="padding:6px 10px;border:1.5px solid #ddd;border-radius:6px;font-size:12px;font-family:inherit">
+        <select id="refStrengthSelect" onchange="state.refStrength = this.value; save(); updateStyleHint();" style="padding:6px 10px;border:1.5px solid #ddd;border-radius:6px;font-size:12px;font-family:inherit">
           <option value="exact">そっくり（写真ほぼそのまま・表情と文字だけ変更）</option>
           <option value="high">かなり似せる（同じキャラだとすぐ分かる）※推奨</option>
           <option value="medium">中くらい（特徴は残しつつイラスト化）</option>
@@ -475,6 +476,29 @@ function bindInputs() {
   const rs = document.getElementById('refStrengthSelect');
   if (rs) rs.value = state.refStrength || 'high';
   renderTonePills();
+  updateStyleHint();
+}
+
+// アートスタイルと参考画像の関係を分かりやすく案内する動的ヒント
+function updateStyleHint() {
+  const hint = document.getElementById('styleHint');
+  if (!hint) return;
+  const sel = document.getElementById('styleInput');
+  const hasRef = ((state.refImages || []).length) > 0;
+  const st = state.refStrength || 'high';
+  let msg, dim = false;
+  if (hasRef && st === 'exact') {
+    msg = '🖼 参考画像「そっくり」モード中：<b>アートスタイルは無視</b>され、アップした画像の絵柄がそのまま使われます。<b>自作キャラを崩したくない人はこれ。</b>';
+    dim = true;
+  } else if (hasRef && st === 'high') {
+    msg = '🖼 参考画像あり：キャラの見た目を保ちつつ、下で選んだアートスタイルで描き直します。<b>自作キャラの絵柄をそのまま活かすなら「写真への忠実度＝そっくり」</b>にしてください。';
+  } else if (hasRef) {
+    msg = '🖼 参考画像あり：色味や雰囲気だけ参考に、選んだアートスタイルで新しく描きます。';
+  } else {
+    msg = '仕上がりの絵のタッチを選びます（写真リアル／水彩／アニメ／ゆるかわ 等）。<b>自作キャラ画像を使う場合は下の「参考画像」にアップ</b>してください。';
+  }
+  hint.innerHTML = msg;
+  if (sel) sel.style.opacity = dim ? '0.45' : '1';
 }
 
 // ========== Reference image (global multi + per-stamp) ==========
@@ -543,6 +567,7 @@ function renderRefImage() {
     clr.style.display = 'none';
     zone.classList.remove('has-image');
   }
+  updateStyleHint();
 }
 
 async function setStampRefImage(i, file) {
@@ -651,7 +676,7 @@ function toneInstruction() {
 
 async function generateCaptions() {
   if (!state.apiKey) { alert('OpenAI APIキーを設定してください'); openSettings(); return; }
-  if (!state.theme.trim()) { alert('テーマを入力してください'); return; }
+  if (!state.theme.trim() && !((state.refImages || []).length)) { alert('テーマを入力するか、参考画像をアップしてください'); return; }
 
   state.generatingCaptions = true;
   const btn = document.getElementById('genCaptionsBtn');
@@ -659,6 +684,7 @@ async function generateCaptions() {
   btn.innerHTML = '<span class="spinner"></span>生成中...';
 
   const phrases = POPULAR_PHRASES.slice(0, state.count);
+  const refImg = (state.refImages && state.refImages[0]) ? state.refImages[0] : null;
 
   const systemPrompt = `あなたは人気LINEスタンプの企画者です。LINEで実際に使われる定番セリフ（おはよう/ありがとう/おつかれ/ごめん/了解/がんばれ/泣き/笑い/怒り など）を中心に、ユーザーのテーマに合った${state.count}個のスタンプ案を作ります。
 出力は必ずJSON。{"stamps":[{"text":"セリフ（10文字以内・短く・吹き出し風）","emotion":"表情・感情","composition":"構図メモ（ポーズ・カメラ）"}, ...]} の形式。
@@ -666,16 +692,17 @@ async function generateCaptions() {
 - 必ず${state.count}個。
 - セリフはLINEで使いやすい短文。1個は「ありがとう」、1個は「おつかれ」、1個は「OK」「了解」「はい」のどれか を必ず含める。
 - 感情を意図的にバラけさせる（喜・怒・哀・楽・照れ・驚き・眠気 など）。
+- 参考画像が添付されている場合は、まずその画像をよく見て、キャラの見た目・種類・性格・雰囲気を読み取り、そのキャラ本人が言いそうなセリフ・似合う表情・構図にする。テーマ未入力なら画像だけを手がかりにする。
 - 実在キャラ・芸能人・ブランド名は避ける。`;
 
-  const userPrompt = `テーマ：${state.theme}
-キャラクター設定：${state.character || '（指定なし／テーマからAIが補完）'}
+  const userPrompt = `テーマ：${state.theme || '（未入力：添付画像のキャラの雰囲気から判断してください）'}
+キャラクター設定：${state.character || '（指定なし／テーマや画像からAIが補完）'}
 アートスタイル：${state.style}
 ${toneInstruction()}
 個数：${state.count}個
 
 参考にしたい人気の場面ワード：${phrases.join('、')}
-
+${refImg ? '※ 添付画像はこのスタンプの主役キャラです。見た目・性格・雰囲気を汲み取り、そのキャラが実際に言いそうなセリフ・似合う表情にしてください。\n' : ''}
 これに基づいて${state.count}個のスタンプ案をJSONで出してください。指定された口調をセリフに必ず反映させてください。`;
 
   try {
@@ -689,7 +716,9 @@ ${toneInstruction()}
         model: 'gpt-4o-mini',
         messages: [
           { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
+          { role: 'user', content: refImg
+            ? [ { type: 'text', text: userPrompt }, { type: 'image_url', image_url: { url: refImg.dataUrl } } ]
+            : userPrompt },
         ],
         response_format: { type: 'json_object' },
         temperature: 0.9,
@@ -770,15 +799,18 @@ function updateCaption(i, field, value) {
 async function regenerateCaption(i) {
   if (!state.apiKey) { alert('APIキー未設定'); openSettings(); return; }
   const existing = state.captions.map((c, idx) => idx === i ? null : c.text).filter(Boolean);
-  const sys = `LINEスタンプのセリフを1つだけ作り直します。JSONで返す：{"text":"...", "emotion":"...", "composition":"..."}。セリフは10文字以内・短く・既出と被らない。`;
-  const usr = `テーマ：${state.theme} / キャラ：${state.character || '指定なし'} / スタイル：${state.style}\n${toneInstruction()}\n既出セリフ：${existing.join('、')}\n感情の被りも避けて、指定の口調で新しい1案を。`;
+  const refImg = (state.refImages && state.refImages[0]) ? state.refImages[0] : null;
+  const sys = `LINEスタンプのセリフを1つだけ作り直します。JSONで返す：{"text":"...", "emotion":"...", "composition":"..."}。セリフは10文字以内・短く・既出と被らない。参考画像があればそのキャラらしいセリフ・表情にする。`;
+  const usr = `テーマ：${state.theme || '（画像から判断）'} / キャラ：${state.character || '指定なし'} / スタイル：${state.style}\n${toneInstruction()}\n既出セリフ：${existing.join('、')}\n感情の被りも避けて、指定の口調で新しい1案を。`;
   try {
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${state.apiKey}` },
       body: JSON.stringify({
         model: 'gpt-4o-mini',
-        messages: [{ role: 'system', content: sys }, { role: 'user', content: usr }],
+        messages: [{ role: 'system', content: sys }, { role: 'user', content: refImg
+          ? [ { type: 'text', text: usr }, { type: 'image_url', image_url: { url: refImg.dataUrl } } ]
+          : usr }],
         response_format: { type: 'json_object' },
         temperature: 1.0,
       }),
