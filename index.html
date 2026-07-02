@@ -97,8 +97,10 @@
     .ref-zone { display: flex; align-items: center; gap: 14px; padding: 12px; border: 2px dashed #ccc; border-radius: 8px; background: #fafafa; transition: all 0.15s; }
     .ref-zone.has-image { border-style: solid; border-color: #06c755; background: #f5fdf8; }
     .ref-zone.dragover { border-color: #06c755; background: #e7f8ee; }
-    .ref-zone .ref-thumb { width: 80px; height: 80px; border-radius: 6px; background: repeating-conic-gradient(#f5f5f5 0% 25%, white 0% 50%) 50% / 12px 12px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; border: 1px solid #ddd; }
+    .ref-zone .ref-thumbs { display: flex; flex-wrap: wrap; gap: 8px; flex-shrink: 0; align-items: flex-start; }
+    .ref-zone .ref-thumb { position: relative; width: 80px; height: 80px; border-radius: 6px; background: repeating-conic-gradient(#f5f5f5 0% 25%, white 0% 50%) 50% / 12px 12px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; border: 1px solid #ddd; }
     .ref-zone .ref-thumb img { width: 100%; height: 100%; object-fit: contain; }
+    .ref-zone .ref-thumb-x { position: absolute; top: -6px; right: -6px; background: rgba(0,0,0,0.6); color: #fff; border: 2px solid #fff; width: 20px; height: 20px; border-radius: 50%; font-size: 11px; cursor: pointer; padding: 0; line-height: 1; display: flex; align-items: center; justify-content: center; }
     .ref-zone .ref-thumb-empty { font-size: 26px; opacity: 0.4; }
     .ref-zone .ref-info { flex: 1; font-size: 12px; color: #666; line-height: 1.6; }
     .ref-zone .ref-info strong { color: #06c755; }
@@ -151,7 +153,8 @@
 
       /* Reference image zone: stack vertically */
       .ref-zone { flex-direction: column; align-items: stretch; gap: 10px; padding: 14px; }
-      .ref-zone .ref-thumb { width: 100%; height: 140px; }
+      .ref-zone .ref-thumbs { justify-content: center; width: 100%; }
+      .ref-zone .ref-thumb { width: 96px; height: 96px; }
       .ref-zone .ref-info { text-align: center; font-size: 12px; }
       .ref-zone .ref-actions { justify-content: center; flex-wrap: wrap; }
       .ref-zone .ref-actions .btn { flex: 1; min-width: 0; }
@@ -252,6 +255,9 @@
           <div class="radio-row">
             <div class="radio-pill active" data-count="8" onclick="setCount(8)">8個</div>
             <div class="radio-pill" data-count="16" onclick="setCount(16)">16個</div>
+            <div class="radio-pill" data-count="24" onclick="setCount(24)">24個</div>
+            <div class="radio-pill" data-count="32" onclick="setCount(32)">32個</div>
+            <div class="radio-pill" data-count="40" onclick="setCount(40)">40個</div>
           </div>
         </div>
         <div></div>
@@ -276,14 +282,14 @@
     <div class="card">
       <div class="card-title"><span class="num">3</span>参考画像（任意・全スタンプ共通のベース）</div>
       <div class="ref-zone" id="refZone" ondragover="event.preventDefault(); this.classList.add('dragover')" ondragleave="this.classList.remove('dragover')" ondrop="onRefDrop(event)">
-        <div class="ref-thumb" id="refThumb"><span class="ref-thumb-empty">🖼</span></div>
+        <div class="ref-thumbs" id="refThumbs"><div class="ref-thumb"><span class="ref-thumb-empty">🖼</span></div></div>
         <div class="ref-info" id="refInfo">
           画像をドラッグ＆ドロップ、または「画像を選ぶ」<br>
           <strong>アップした画像のキャラ・絵柄・雰囲気を基に全スタンプを生成</strong>します。<br>
           <span style="color:#888">※ 透過PNG・JPG・WebP対応。50MBまで。</span>
         </div>
         <div class="ref-actions">
-          <input type="file" id="refFile" accept="image/*" onchange="onRefFile(event)">
+          <input type="file" id="refFile" accept="image/*" multiple onchange="onRefFile(event)">
           <button class="btn btn-secondary btn-sm" onclick="document.getElementById('refFile').click()">📁 画像を選ぶ</button>
           <button class="btn btn-danger btn-sm" onclick="clearRefImage()" id="refClearBtn" style="display:none">✕ 解除</button>
         </div>
@@ -329,7 +335,7 @@
       <div class="note">
         ・キーはこのブラウザのlocalStorageにのみ保存され、外部に送信されません。<br>
         ・<strong>gpt-4o-mini</strong>（セリフ生成）と <strong>gpt-image-1</strong>（画像生成・背景透過対応）を使用します。<br>
-        ・gpt-image-1 (medium) は約 $0.04/枚。8個生成で約 $0.32 です。<br>
+        ・gpt-image-1 (medium) は約 $0.04/枚。8個で約 $0.32、40個で約 $1.6 です。<br>
         ・<strong>初回はOpenAIで Organization Verification（本人確認）が必須</strong>です。失敗する場合は platform.openai.com → Settings → Organization → General で確認してください。
       </div>
       <div class="modal-actions">
@@ -349,7 +355,7 @@ const state = {
   count: 8,
   captions: [],     // [{ text, emotion, composition, customPrompt, refImage:{name,dataUrl,blob}|null, image, status, error }]
   generatingCaptions: false,
-  refImage: null,   // { name, dataUrl, blob } — global reference applied to all stamps
+  refImages: [],    // [{ name, dataUrl, blob }] — global references applied to all stamps
   refStrength: 'high', // 'exact' | 'high' | 'medium' | 'low' — how closely to follow the reference
 };
 
@@ -362,6 +368,7 @@ function load() {
     state.style     = d.style     || state.style;
     state.count     = d.count     || 8;
     state.refStrength = d.refStrength || 'high';
+    state.refImages = [];   // 参考画像はlocalStorageに保存しない（大きすぎるため）。IndexedDBのセット復元時のみ復活
     state.captions  = (d.captions || []).map(c => ({
       text: c.text || '',
       emotion: c.emotion || '',
@@ -458,50 +465,69 @@ function bindInputs() {
   if (rs) rs.value = state.refStrength || 'high';
 }
 
-// ========== Reference image (global + per-stamp) ==========
-function onRefFile(e) {
-  const file = e.target.files[0];
-  if (file) setRefImageFromFile(file);
-  e.target.value = '';
-}
+// ========== Reference image (global multi + per-stamp) ==========
+const MAX_REF_IMAGES = 4; // gpt-image-1 edits に渡せる枚数の実用上限
 
-function onRefDrop(e) {
-  e.preventDefault();
-  document.getElementById('refZone').classList.remove('dragover');
-  const file = e.dataTransfer.files[0];
-  if (file && file.type.startsWith('image/')) setRefImageFromFile(file);
-}
-
-async function setRefImageFromFile(file) {
-  if (file.size > 50 * 1024 * 1024) { alert('画像は50MB以下にしてください'); return; }
-  const dataUrl = await new Promise((res, rej) => {
+function readFileAsDataURL(file) {
+  return new Promise((res, rej) => {
     const r = new FileReader();
     r.onloadend = () => res(r.result);
     r.onerror = rej;
     r.readAsDataURL(file);
   });
-  state.refImage = { name: file.name, dataUrl, blob: file };
+}
+
+async function onRefFile(e) {
+  const files = Array.from(e.target.files || []);
+  for (const f of files) await addRefImageFromFile(f);
+  e.target.value = '';
+}
+
+async function onRefDrop(e) {
+  e.preventDefault();
+  document.getElementById('refZone').classList.remove('dragover');
+  const files = Array.from(e.dataTransfer.files || []).filter(f => f.type.startsWith('image/'));
+  for (const f of files) await addRefImageFromFile(f);
+}
+
+async function addRefImageFromFile(file) {
+  if (state.refImages.length >= MAX_REF_IMAGES) { alert(`参考画像は最大${MAX_REF_IMAGES}枚までです`); return; }
+  if (file.size > 50 * 1024 * 1024) { alert('画像は50MB以下にしてください'); return; }
+  const dataUrl = await readFileAsDataURL(file);
+  state.refImages.push({ name: file.name, dataUrl, blob: file });
   renderRefImage();
 }
 
 function clearRefImage() {
-  state.refImage = null;
+  state.refImages = [];
+  renderRefImage();
+}
+
+function removeRefImage(idx) {
+  state.refImages.splice(idx, 1);
   renderRefImage();
 }
 
 function renderRefImage() {
-  const thumb = document.getElementById('refThumb');
-  const info  = document.getElementById('refInfo');
-  const clr   = document.getElementById('refClearBtn');
-  const zone  = document.getElementById('refZone');
-  if (state.refImage) {
-    thumb.innerHTML = `<img src="${state.refImage.dataUrl}" alt="ref">`;
-    info.innerHTML = `<strong>📎 ${escHtml(state.refImage.name)}</strong> をベースに全スタンプを生成します<br><span style="color:#888">※ 個別カードで別の参考画像を指定するとそちらが優先されます</span>`;
+  const thumbs = document.getElementById('refThumbs');
+  const info   = document.getElementById('refInfo');
+  const clr    = document.getElementById('refClearBtn');
+  const zone   = document.getElementById('refZone');
+  const imgs   = state.refImages || [];
+  if (imgs.length) {
+    let h = imgs.map((im, idx) =>
+      `<div class="ref-thumb"><img src="${im.dataUrl}" alt="ref"><button class="ref-thumb-x" onclick="removeRefImage(${idx})" title="この画像を外す">✕</button></div>`
+    ).join('');
+    if (imgs.length < MAX_REF_IMAGES) {
+      h += `<div class="ref-thumb" style="cursor:pointer" onclick="document.getElementById('refFile').click()" title="画像を追加"><span class="ref-thumb-empty">＋</span></div>`;
+    }
+    thumbs.innerHTML = h;
+    info.innerHTML = `<strong>📎 ${imgs.length}枚</strong>の参考画像をベースに全スタンプを生成します（同じキャラを複数アングルで入れると一貫性が上がります）<br><span style="color:#888">※ 個別カードで別の参考画像を指定するとそちらが優先されます</span>`;
     clr.style.display = '';
     zone.classList.add('has-image');
   } else {
-    thumb.innerHTML = `<span class="ref-thumb-empty">🖼</span>`;
-    info.innerHTML = `画像をドラッグ＆ドロップ、または「画像を選ぶ」<br><strong>アップした画像のキャラ・絵柄・雰囲気を基に全スタンプを生成</strong>します。<br><span style="color:#888">※ 透過PNG・JPG・WebP対応。50MBまで。</span>`;
+    thumbs.innerHTML = `<div class="ref-thumb"><span class="ref-thumb-empty">🖼</span></div>`;
+    info.innerHTML = `画像をドラッグ＆ドロップ、または「画像を追加」<br><strong>アップした画像のキャラ・絵柄・雰囲気を基に全スタンプを生成</strong>します。<br><span style="color:#888">※ 同じキャラを正面・横顔など<strong>複数枚</strong>入れるとブレにくくなります。透過PNG・JPG・WebP対応／1枚50MBまで。</span>`;
     clr.style.display = 'none';
     zone.classList.remove('has-image');
   }
@@ -566,7 +592,12 @@ const STYLE_OPTIONS = {
 const POPULAR_PHRASES = [
   'おはよう', 'おやすみ', 'ありがとう', 'ごめん', 'OK・了解',
   'おつかれ', 'がんばれ', '大笑い', '泣き', '怒り', '照れ', '寝てる',
-  'えーっ驚き', '考え中', 'いいね！', '行ってきます'
+  'えーっ驚き', '考え中', 'いいね！', '行ってきます',
+  'ただいま', 'おかえり', 'いってらっしゃい', 'よろしく', 'だいすき',
+  'こんにちは', 'こんばんは', 'またね', 'バイバイ', 'なるほど',
+  'わかった', 'むり〜', 'たすけて', 'おなかすいた', 'うれしい',
+  'かなしい', 'びっくり', 'ねむい', 'おめでとう', 'だいじょうぶ',
+  'ファイト', 'さすが', 'ドキドキ', 'いただきます'
 ];
 
 async function generateCaptions() {
@@ -726,7 +757,7 @@ async function regenerateCaption(i) {
 
 // ========== Image generation (DALL-E 3) ==========
 function buildImagePrompt(c) {
-  const usingRef = c.refImage || state.refImage;
+  const usingRef = c.refImage || (state.refImages && state.refImages.length > 0);
   const effectiveStyleKey = (c.customStyle && c.customStyle.trim()) ? c.customStyle : state.style;
   const styleDesc = STYLE_OPTIONS[effectiveStyleKey] || effectiveStyleKey;
 
@@ -780,22 +811,30 @@ async function generateOneImage(i) {
   c.error = null;
   renderStamps();
 
-  const refBlob = (c.refImage && c.refImage.blob) || (state.refImage && state.refImage.blob);
-  const useEdit = !!refBlob;
+  const refBlobs = (c.refImage && c.refImage.blob)
+    ? [c.refImage.blob]
+    : (state.refImages || []).map(im => im.blob).filter(Boolean);
+  const useEdit = refBlobs.length > 0;
 
   try {
     let res;
     if (useEdit) {
-      // /v1/images/edits — multipart with reference image
+      // /v1/images/edits — multipart with reference image(s)
+      // 忠実度が「そっくり／かなり似せる」のときは high で細部まで再現
+      const hiFidelity = (state.refStrength === 'exact' || state.refStrength === 'high');
       const fd = new FormData();
       fd.append('model', 'gpt-image-1');
       fd.append('prompt', buildImagePrompt(c));
       fd.append('n', '1');
       fd.append('size', '1024x1024');
-      fd.append('quality', 'medium');
+      fd.append('quality', hiFidelity ? 'high' : 'medium');
       fd.append('background', 'transparent');
       fd.append('output_format', 'png');
-      fd.append('image', refBlob, refBlob.name || 'ref.png');
+      if (refBlobs.length === 1) {
+        fd.append('image', refBlobs[0], refBlobs[0].name || 'ref.png');
+      } else {
+        refBlobs.forEach((b, k) => fd.append('image[]', b, b.name || `ref${k}.png`));
+      }
       res = await fetch('https://api.openai.com/v1/images/edits', {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${state.apiKey}` },
@@ -948,7 +987,7 @@ function renderStamps() {
     const styleBadge = c.customStyle ? `<div style="font-size:10px;color:#06c755;text-align:center;margin-top:2px">🎨 ${escHtml(c.customStyle)}</div>` : '';
     const refIndicator = c.refImage
       ? `<div class="stamp-ref-thumb"><img src="${c.refImage.dataUrl}"><button class="x" onclick="clearStampRefImage(${i})" title="個別参考画像を解除">✕</button></div>`
-      : (state.refImage ? `<div style="font-size:10px;color:#06c755;text-align:center;margin-top:2px">📎 全体の参考画像を使用</div>` : '');
+      : ((state.refImages && state.refImages.length) ? `<div style="font-size:10px;color:#06c755;text-align:center;margin-top:2px">📎 全体の参考画像(${state.refImages.length}枚)を使用</div>` : '');
     html += `<div class="stamp-card">
       <div class="stamp-img">${imgHtml}</div>
       <div class="stamp-caption">${num}. ${escHtml(c.text)}</div>
@@ -1043,8 +1082,7 @@ async function idbSaveSet(name) {
     savedAt: new Date().toISOString(),
     theme: state.theme, character: state.character, style: state.style,
     count: state.count, refStrength: state.refStrength,
-    refImageDataUrl: state.refImage ? state.refImage.dataUrl : null,
-    refImageName: state.refImage ? state.refImage.name : null,
+    refImages: (state.refImages || []).map(im => ({ name: im.name, dataUrl: im.dataUrl })),
     captions: state.captions.map(c => ({
       text: c.text, emotion: c.emotion, composition: c.composition,
       customPrompt: c.customPrompt || '', customStyle: c.customStyle || '',
@@ -1115,6 +1153,7 @@ async function renderHistory() {
     const firstImg = s.captions.find(c => c.image);
     let thumbSrc = null;
     if (firstImg) thumbSrc = `data:image/png;base64,${firstImg.image}`;
+    else if (s.refImages && s.refImages[0]) thumbSrc = s.refImages[0].dataUrl;
     else if (s.refImageDataUrl) thumbSrc = s.refImageDataUrl;
     const dones = s.captions.filter(c => c.image).length;
     const date = new Date(s.savedAt).toLocaleDateString('ja-JP', { month: '2-digit', day: '2-digit' });
@@ -1141,12 +1180,14 @@ async function loadSet(id) {
   state.style = s.style || state.style;
   state.count = s.count || 8;
   state.refStrength = s.refStrength || 'high';
-  // Restore ref image (dataUrl only — convert back to blob for re-use in API calls)
-  if (s.refImageDataUrl) {
-    const blob = await (await fetch(s.refImageDataUrl)).blob();
-    state.refImage = { name: s.refImageName || 'ref.png', dataUrl: s.refImageDataUrl, blob };
-  } else {
-    state.refImage = null;
+  // Restore ref images (dataUrl only — convert back to blob for re-use in API calls)
+  state.refImages = [];
+  const savedRefs = s.refImages
+    ? s.refImages
+    : (s.refImageDataUrl ? [{ name: s.refImageName || 'ref.png', dataUrl: s.refImageDataUrl }] : []);
+  for (const im of savedRefs) {
+    const blob = await (await fetch(im.dataUrl)).blob();
+    state.refImages.push({ name: im.name || 'ref.png', dataUrl: im.dataUrl, blob });
   }
   state.captions = s.captions.map(c => ({
     text: c.text, emotion: c.emotion, composition: c.composition,
