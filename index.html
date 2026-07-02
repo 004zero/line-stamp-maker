@@ -314,12 +314,13 @@
       <div style="display:flex;align-items:center;gap:12px;margin-top:10px;padding:0 4px;flex-wrap:wrap">
         <label style="font-size:12px;font-weight:700;color:#555">📷 写真への忠実度</label>
         <select id="refStrengthSelect" onchange="state.refStrength = this.value; save(); updateStyleHint();" style="padding:6px 10px;border:1.5px solid #ddd;border-radius:6px;font-size:12px;font-family:inherit">
+          <option value="same">そのまま同じ（画像はいじらず・文字だけのせる）</option>
           <option value="exact">そっくり（写真ほぼそのまま・表情と文字だけ変更）</option>
           <option value="high">かなり似せる（同じキャラだとすぐ分かる）※推奨</option>
           <option value="medium">中くらい（特徴は残しつつイラスト化）</option>
           <option value="low">雰囲気のみ（色味だけ参考）</option>
         </select>
-        <span style="font-size:11px;color:#888">※「そっくり」を選ぶとアートスタイルは無視され、写真の見た目が優先されます</span>
+        <span style="font-size:11px;color:#888">※「そのまま同じ」「そっくり」を選ぶとアートスタイルは無視され、画像の見た目が優先されます</span>
       </div>
     </div>
 
@@ -509,7 +510,10 @@ function updateStyleHint() {
   const hasRef = ((state.refImages || []).length) > 0;
   const st = state.refStrength || 'high';
   let msg, dim = false;
-  if (hasRef && st === 'exact') {
+  if (hasRef && st === 'same') {
+    msg = '🖼 「そのまま同じ」モード中：<b>画像を一切いじらず、文字だけをのせます</b>（表情・ポーズも変えません）。アートスタイルは無視されます。全部同じ絵で文字だけ違うスタンプになります。';
+    dim = true;
+  } else if (hasRef && st === 'exact') {
     msg = '🖼 参考画像「そっくり」モード中：<b>アートスタイルは無視</b>され、アップした画像の絵柄がそのまま使われます。<b>自作キャラを崩したくない人はこれ。</b>';
     dim = true;
   } else if (hasRef && st === 'high') {
@@ -885,7 +889,12 @@ function buildImagePrompt(c) {
   let refBlock = '';
   if (usingRef) {
     const strength = state.refStrength || 'high';
-    if (strength === 'exact') {
+    if (strength === 'same') {
+      // そのまま同じ — 画像をいじらず、文字だけのせる
+      refBlock = `CRITICAL — REFERENCE FIDELITY: IDENTICAL (VERBATIM).
+Reproduce the reference image EXACTLY as-is: the SAME single character, SAME pose, SAME facial expression, SAME composition, SAME colors and details. Do NOT change the pose or the expression at all. Think of it as taking the reference image and simply placing a caption on top — nothing else changes. The ONLY addition is the Japanese caption text specified below.
+Ignore the art-style description AND the emotion/pose instructions below — the reference image itself is the finished artwork.`;
+    } else if (strength === 'exact') {
       // 写真そっくり — photo-faithful, almost untouched
       refBlock = `CRITICAL — REFERENCE FIDELITY: PHOTO-EXACT.
 The output must look like the reference photo itself. Preserve the EXACT same subject, face, fur/skin details, clothing, colors, lighting, and overall photographic look. Do NOT illustrate or stylize. The ONLY changes allowed are: (1) adjust the facial expression / pose slightly to match the sticker emotion below, (2) overlay the Japanese caption text as a sticker caption. Keep everything else photographically identical to the reference.
@@ -910,7 +919,8 @@ IMPORTANT — the reference may show the character in MULTIPLE poses, as a full 
   }
 
   const customLine = c.customPrompt ? `Per-stamp extra instruction: ${c.customPrompt}` : '';
-  const photoLike = usingRef && (state.refStrength === 'exact' || state.refStrength === 'high');
+  const sameMode = usingRef && (state.refStrength || 'high') === 'same';
+  const photoLike = usingRef && ['same', 'exact', 'high'].includes(state.refStrength);
 
   // Put STYLE first and strong. Drop the hardcoded "bold outlines / flat colors" that
   // forced every output to look the same regardless of style choice.
@@ -921,8 +931,8 @@ ${styleDesc}
 
 Subject: ${state.theme}. ${state.character || ''}
 This is a Japanese LINE messenger sticker. Single subject centered on a fully transparent background (no scenery, no background elements at all).
-Emotion / facial expression: ${c.emotion}.
-Pose / composition: ${c.composition}.
+${sameMode ? '' : `Emotion / facial expression: ${c.emotion}.
+Pose / composition: ${c.composition}.`}
 ${customLine}
 
 Caption text: include the Japanese text "${c.text}" rendered as a clean sticker caption inside the image. The Japanese characters must be spelled correctly and clearly readable. Style the caption to match the overall art style above (do not default to a generic comic font if the style is e.g. watercolor or photorealistic).
@@ -947,7 +957,7 @@ async function generateOneImage(i) {
     if (useEdit) {
       // /v1/images/edits — multipart with reference image(s)
       // 忠実度が「そっくり／かなり似せる」のときは high で細部まで再現
-      const hiFidelity = (state.refStrength === 'exact' || state.refStrength === 'high');
+      const hiFidelity = (state.refStrength === 'same' || state.refStrength === 'exact' || state.refStrength === 'high');
       const fd = new FormData();
       fd.append('model', 'gpt-image-1');
       fd.append('prompt', buildImagePrompt(c));
