@@ -434,10 +434,30 @@ function save() {
 
 // ========== UI Helpers ==========
 function setCount(n) {
+  // 既存のセリフ表を減らす場合、生成済み画像が消えるなら確認
+  if (state.captions.length > n) {
+    const losing = state.captions.slice(n).filter(c => c.image).length;
+    if (losing && !confirm(`${n}個に減らすと、末尾の ${state.captions.length - n}個（生成済み画像 ${losing}枚を含む）が削除されます。よろしいですか？`)) {
+      return; // キャンセル：何も変えない
+    }
+  }
   state.count = n;
   document.querySelectorAll('[data-count]').forEach(el => {
     el.classList.toggle('active', Number(el.dataset.count) === n);
   });
+  // 既にセリフ表がある場合は、選んだ個数に表も合わせる
+  if (state.captions.length) {
+    if (state.captions.length > n) {
+      state.captions = state.captions.slice(0, n);
+    } else {
+      while (state.captions.length < n) {
+        const ph = POPULAR_PHRASES[state.captions.length % POPULAR_PHRASES.length];
+        state.captions.push({ text: ph, emotion: '', composition: '', customPrompt: '', customStyle: '', refImage: null, image: null, status: 'idle', error: null });
+      }
+    }
+    renderCaptions();
+    renderStamps();
+  }
   save();
 }
 
