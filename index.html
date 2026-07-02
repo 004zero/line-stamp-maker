@@ -35,6 +35,8 @@
     .radio-pill { flex: 1; padding: 9px 0; border: 1.5px solid #ddd; border-radius: 7px; text-align: center; cursor: pointer; font-size: 13px; font-weight: 600; background: white; user-select: none; }
     .radio-pill:hover { border-color: #06c755; }
     .radio-pill.active { background: #06c755; border-color: #06c755; color: white; }
+    .tone-row { display: flex; flex-wrap: wrap; gap: 8px; }
+    .tone-row .radio-pill { flex: 0 0 auto; padding: 9px 15px; }
 
     .btn { padding: 10px 18px; border: none; border-radius: 7px; cursor: pointer; font-size: 13px; font-weight: 700; font-family: inherit; transition: all 0.15s; }
     .btn:hover { transform: translateY(-1px); }
@@ -146,6 +148,7 @@
       .form-input, .form-textarea, .form-select { font-size: 16px; padding: 11px 12px; }
 
       .radio-pill { padding: 12px 0; font-size: 14px; }
+      .tone-row .radio-pill { padding: 11px 15px; font-size: 13px; }
 
       /* Buttons: bigger touch targets */
       .btn { padding: 12px 16px; font-size: 14px; min-height: 42px; }
@@ -248,6 +251,11 @@
       <div class="form-group">
         <label class="form-label">キャラクター設定（見た目・性格・口調など／任意）</label>
         <textarea class="form-textarea" id="charInput" placeholder="例：丸顔の柴犬、語尾に「だワン」をつけがち、ちょっと内気だけど明るい"></textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">口調・話し方（複数選択OK）</label>
+        <div class="tone-row" id="toneRow"></div>
+        <div style="font-size:11px;color:#888;margin-top:6px">複数選ぶとスタンプごとに口調をミックスします（例：敬語＋タメ口）。未選択ならカジュアルなタメ口になります。</div>
       </div>
       <div class="form-grid-3">
         <div class="form-group" style="margin-bottom:0">
@@ -353,6 +361,7 @@ const state = {
   character: '',
   style: 'シンプル線画・パステル',
   count: 8,
+  tones: ['casual'],   // 選択中の口調キー（複数可）。空ならカジュアル扱い
   captions: [],     // [{ text, emotion, composition, customPrompt, refImage:{name,dataUrl,blob}|null, image, status, error }]
   generatingCaptions: false,
   refImages: [],    // [{ name, dataUrl, blob }] — global references applied to all stamps
@@ -367,6 +376,7 @@ function load() {
     state.character = d.character || '';
     state.style     = d.style     || state.style;
     state.count     = d.count     || 8;
+    state.tones     = Array.isArray(d.tones) ? d.tones : ['casual'];
     state.refStrength = d.refStrength || 'high';
     state.refImages = [];   // 参考画像はlocalStorageに保存しない（大きすぎるため）。IndexedDBのセット復元時のみ復活
     state.captions  = (d.captions || []).map(c => ({
@@ -400,6 +410,7 @@ function save() {
       character: state.character,
       style: state.style,
       count: state.count,
+      tones: state.tones,
       refStrength: state.refStrength,
       captions: lightCaptions,
     }));
@@ -463,6 +474,7 @@ function bindInputs() {
   });
   const rs = document.getElementById('refStrengthSelect');
   if (rs) rs.value = state.refStrength || 'high';
+  renderTonePills();
 }
 
 // ========== Reference image (global multi + per-stamp) ==========
@@ -600,6 +612,43 @@ const POPULAR_PHRASES = [
   'ファイト', 'さすが', 'ドキドキ', 'いただきます'
 ];
 
+// 口調（複数選択可）表示名 → セリフ生成へのニュアンス指示
+const TONE_OPTIONS = {
+  casual: { label: 'タメ口・カジュアル', desc: 'フランクなタメ口。友達に話すような気軽な話し方' },
+  keigo:  { label: '敬語・ていねい',     desc: 'ていねいな敬語（です・ます調）。礼儀正しく上品' },
+  kansai: { label: '関西弁',             desc: '関西弁（〜やで／〜へん／ほんま／おおきに など）' },
+  cute:   { label: 'かわいい・あざとい', desc: '甘えたかわいい口調。語尾をのばしたり小悪魔っぽく' },
+  cool:   { label: 'クール・そっけない', desc: 'クールで短く素っ気ない口調。無駄がなくかっこいい' },
+  genki:  { label: '元気・テンション高め', desc: '元気いっぱいでテンション高め。ビックリマーク多め' },
+  ojou:   { label: 'お嬢様風',           desc: 'お嬢様言葉（〜ですわ／〜ますのよ／ごきげんよう など）' },
+  baby:   { label: '赤ちゃん・幼児語',   desc: 'たどたどしい赤ちゃん言葉・幼児語で舌足らずに' },
+};
+
+function renderTonePills() {
+  const row = document.getElementById('toneRow');
+  if (!row) return;
+  row.innerHTML = Object.entries(TONE_OPTIONS).map(([k, o]) =>
+    `<div class="radio-pill ${(state.tones || []).includes(k) ? 'active' : ''}" data-tone="${k}" onclick="toggleTone('${k}')">${o.label}</div>`
+  ).join('');
+}
+
+function toggleTone(k) {
+  if (!Array.isArray(state.tones)) state.tones = [];
+  const i = state.tones.indexOf(k);
+  if (i >= 0) state.tones.splice(i, 1); else state.tones.push(k);
+  save();
+  renderTonePills();
+}
+
+// セリフ生成プロンプトに差し込む口調指示
+function toneInstruction() {
+  const sel = (state.tones || []).filter(k => TONE_OPTIONS[k]);
+  if (!sel.length) return `口調：${TONE_OPTIONS.casual.desc}`;
+  if (sel.length === 1) return `口調：全てのセリフを「${TONE_OPTIONS[sel[0]].desc}」で統一してください。`;
+  const list = sel.map(k => `「${TONE_OPTIONS[k].label}（${TONE_OPTIONS[k].desc}）」`).join('、');
+  return `口調：次の話し方をスタンプごとにバランスよく混ぜてください：${list}。選んだ口調がそれぞれ最低1個ずつ入るようにしてください。`;
+}
+
 async function generateCaptions() {
   if (!state.apiKey) { alert('OpenAI APIキーを設定してください'); openSettings(); return; }
   if (!state.theme.trim()) { alert('テーマを入力してください'); return; }
@@ -622,11 +671,12 @@ async function generateCaptions() {
   const userPrompt = `テーマ：${state.theme}
 キャラクター設定：${state.character || '（指定なし／テーマからAIが補完）'}
 アートスタイル：${state.style}
+${toneInstruction()}
 個数：${state.count}個
 
 参考にしたい人気の場面ワード：${phrases.join('、')}
 
-これに基づいて${state.count}個のスタンプ案をJSONで出してください。`;
+これに基づいて${state.count}個のスタンプ案をJSONで出してください。指定された口調をセリフに必ず反映させてください。`;
 
   try {
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -721,7 +771,7 @@ async function regenerateCaption(i) {
   if (!state.apiKey) { alert('APIキー未設定'); openSettings(); return; }
   const existing = state.captions.map((c, idx) => idx === i ? null : c.text).filter(Boolean);
   const sys = `LINEスタンプのセリフを1つだけ作り直します。JSONで返す：{"text":"...", "emotion":"...", "composition":"..."}。セリフは10文字以内・短く・既出と被らない。`;
-  const usr = `テーマ：${state.theme} / キャラ：${state.character || '指定なし'} / スタイル：${state.style}\n既出セリフ：${existing.join('、')}\n感情の被りも避けて、新しい1案を。`;
+  const usr = `テーマ：${state.theme} / キャラ：${state.character || '指定なし'} / スタイル：${state.style}\n${toneInstruction()}\n既出セリフ：${existing.join('、')}\n感情の被りも避けて、指定の口調で新しい1案を。`;
   try {
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -1081,7 +1131,7 @@ async function idbSaveSet(name) {
     name: name,
     savedAt: new Date().toISOString(),
     theme: state.theme, character: state.character, style: state.style,
-    count: state.count, refStrength: state.refStrength,
+    count: state.count, tones: state.tones, refStrength: state.refStrength,
     refImages: (state.refImages || []).map(im => ({ name: im.name, dataUrl: im.dataUrl })),
     captions: state.captions.map(c => ({
       text: c.text, emotion: c.emotion, composition: c.composition,
@@ -1179,6 +1229,7 @@ async function loadSet(id) {
   state.character = s.character || '';
   state.style = s.style || state.style;
   state.count = s.count || 8;
+  state.tones = Array.isArray(s.tones) ? s.tones : ['casual'];
   state.refStrength = s.refStrength || 'high';
   // Restore ref images (dataUrl only — convert back to blob for re-use in API calls)
   state.refImages = [];
