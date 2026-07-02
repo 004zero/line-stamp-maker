@@ -563,7 +563,7 @@ function renderRefImage() {
     zone.classList.add('has-image');
   } else {
     thumbs.innerHTML = `<div class="ref-thumb"><span class="ref-thumb-empty">🖼</span></div>`;
-    info.innerHTML = `画像をドラッグ＆ドロップ、または「画像を追加」<br><strong>アップした画像のキャラ・絵柄・雰囲気を基に全スタンプを生成</strong>します。<br><span style="color:#888">※ 同じキャラを正面・横顔など<strong>複数枚</strong>入れるとブレにくくなります。透過PNG・JPG・WebP対応／1枚50MBまで。</span>`;
+    info.innerHTML = `画像をドラッグ＆ドロップ、または「画像を追加」<br><strong>アップした画像のキャラ・絵柄・雰囲気を基に全スタンプを生成</strong>します。<br><span style="color:#888">💡 <strong>1体だけのキャラ画像</strong>が最適。文字入りや複数並んだ完成シートでもOK（<strong>文字・並びは無視して1体ずつ描き直します</strong>）。同じキャラを正面・横顔など複数枚入れるとブレにくくなります。透過PNG・JPG・WebP／1枚50MBまで。</span>`;
     clr.style.display = 'none';
     zone.classList.remove('has-image');
   }
@@ -692,7 +692,7 @@ async function generateCaptions() {
 - 必ず${state.count}個。
 - セリフはLINEで使いやすい短文。1個は「ありがとう」、1個は「おつかれ」、1個は「OK」「了解」「はい」のどれか を必ず含める。
 - 感情を意図的にバラけさせる（喜・怒・哀・楽・照れ・驚き・眠気 など）。
-- 参考画像が添付されている場合は、まずその画像をよく見て、キャラの見た目・種類・性格・雰囲気を読み取り、そのキャラ本人が言いそうなセリフ・似合う表情・構図にする。テーマ未入力なら画像だけを手がかりにする。
+- 参考画像が添付されている場合は、まずその画像をよく見て、キャラの見た目・種類・性格・雰囲気を読み取り、そのキャラ本人が言いそうなセリフ・似合う表情・構図にする。テーマ未入力なら画像だけを手がかりにする。画像に既にセリフや文字が写っていても丸写しせず、新しいLINE向けのセリフを考える（構図やキャラの雰囲気の参考にとどめる）。
 - 実在キャラ・芸能人・ブランド名は避ける。`;
 
   const userPrompt = `テーマ：${state.theme || '（未入力：添付画像のキャラの雰囲気から判断してください）'}
@@ -863,6 +863,12 @@ Use the reference image as inspiration for the character's identity and color pa
       refBlock = `REFERENCE FIDELITY: LOW.
 Borrow only the overall mood and color palette from the reference. The character may be freely reinterpreted in the art style below.`;
     }
+  }
+
+  // 参考画像が「複数ポーズが並んだ完成シート」や「文字入り」でも崩れないようガード
+  if (usingRef) {
+    refBlock += `
+IMPORTANT — the reference may show the character in MULTIPLE poses, as a full sticker sheet / grid, and may already contain Japanese caption text or speech bubbles. Use the reference ONLY as a guide to the character's design (face, hairstyle, outfit, colors, proportions, accessories such as a lanyard/ID card). Output EXACTLY ONE single character in ONE pose — never recreate a grid or several characters side by side. Do NOT copy, keep, or redraw any text/letters that appear in the reference; the ONLY text allowed in the output is the caption specified below.`;
   }
 
   const customLine = c.customPrompt ? `Per-stamp extra instruction: ${c.customPrompt}` : '';
