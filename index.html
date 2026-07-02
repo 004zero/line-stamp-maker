@@ -74,6 +74,7 @@
     .stamp-card .stamp-caption { font-size: 13px; font-weight: 700; color: #333; text-align: center; }
     .stamp-card .stamp-actions { display: flex; gap: 5px; }
     .stamp-card .stamp-actions .btn { flex: 1; }
+    .stamp-card.drop-hover { outline: 2px dashed #06c755; outline-offset: 2px; background: #f5fdf8; }
 
     .spinner { display: inline-block; width: 11px; height: 11px; border: 2px solid rgba(255,255,255,0.4); border-top-color: white; border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: middle; margin-right: 4px; }
     .spinner-dark { border-color: rgba(0,0,0,0.2); border-top-color: #06c755; }
@@ -374,12 +375,16 @@
   <div class="modal-bg" id="cropModal">
     <div class="modal" style="max-width:660px">
       <h2>✂ シートから1コマを切り抜く</h2>
-      <div class="note" style="margin-top:0;margin-bottom:12px">使いたい1コマを<strong>ドラッグで囲んで</strong>「切り抜いて使う」を押してください。切り抜いた1コマが参考画像になります。</div>
+      <div class="note" style="margin-top:0;margin-bottom:12px">使いたい1コマを<strong>ドラッグで囲んで</strong>、下で使い道を選び「切り抜いて使う」を押してください。</div>
       <div style="text-align:center;background:#f4f4f4;border-radius:8px;padding:10px;">
         <div id="cropStage" onmousedown="cropPointerDown(event)" onmousemove="cropPointerMove(event)" onmouseup="cropPointerUp(event)" ontouchstart="cropPointerDown(event)" ontouchmove="cropPointerMove(event)" ontouchend="cropPointerUp(event)">
           <img id="cropImg" alt="crop source">
           <div id="cropSel"></div>
         </div>
+      </div>
+      <div class="form-group" style="margin-top:14px">
+        <label class="form-label">この切り抜きの使い道</label>
+        <select class="form-select" id="cropTarget"></select>
       </div>
       <div class="modal-actions">
         <button class="btn btn-secondary" onclick="closeCrop()">キャンセル</button>
@@ -654,6 +659,17 @@ function openCropFromRef() {
   sel.style.display = 'none';
   _crop = { dragging: false, box: null };
   img.src = src;
+  // 使い道セレクタを作る：全体の参考画像 or 各スタンプへ割り当て
+  const tsel = document.getElementById('cropTarget');
+  if (tsel) {
+    let opts = `<option value="global">全体の参考画像にする（全スタンプ共通）</option>`;
+    state.captions.forEach((c, i) => {
+      const label = `スタンプ ${String(i + 1).padStart(2, '0')}. ${(c.text || '').slice(0, 12)}`;
+      opts += `<option value="${i}">${escHtml(label)}</option>`;
+    });
+    tsel.innerHTML = opts;
+    tsel.value = 'global';
+  }
   document.getElementById('cropModal').classList.add('open');
 }
 function closeCrop() {
@@ -705,8 +721,18 @@ function applyCrop() {
   canvas.toBlob(blob => {
     const reader = new FileReader();
     reader.onloadend = () => {
-      state.refImages = [{ name: 'crop.png', dataUrl: reader.result, blob }];
-      renderRefImage();
+      const cropImg = { name: 'crop.png', dataUrl: reader.result, blob };
+      const target = (document.getElementById('cropTarget') || {}).value || 'global';
+      if (target === 'global') {
+        state.refImages = [cropImg];
+        renderRefImage();
+      } else {
+        const idx = parseInt(target, 10);
+        if (!isNaN(idx) && state.captions[idx]) {
+          state.captions[idx].refImage = cropImg;
+          renderStamps();
+        }
+      }
       closeCrop();
     };
     reader.readAsDataURL(blob);
@@ -729,6 +755,16 @@ function onStampRefFile(i, e) {
   const file = e.target.files[0];
   if (file) setStampRefImage(i, file);
   e.target.value = '';
+}
+
+// スタンプカードに画像ファイルをドラッグ＆ドロップ → そのスタンプ専用の参考画像に
+function onStampDrop(i, e) {
+  e.preventDefault();
+  const card = e.currentTarget;
+  if (card) card.classList.remove('drop-hover');
+  const file = Array.from(e.dataTransfer.files || []).find(f => f.type.startsWith('image/'));
+  if (file) setStampRefImage(i, file);
+  else alert('画像ファイルをドロップしてください');
 }
 
 function clearStampRefImage(i) {
@@ -1256,7 +1292,7 @@ function renderStamps() {
     refreshSaveBtn();
     return;
   }
-  let html = `<div class="stamps-grid">`;
+  let html = `<div style="font-size:11px;color:#888;margin-bottom:10px">💡 各スタンプに<strong>画像ファイルをドラッグ＆ドロップ</strong>すると、そのスタンプ専用の参考画像になります（🖼ボタンや「✂1コマを切り抜く」からの割り当てもOK）。</div><div class="stamps-grid">`;
   state.captions.forEach((c, i) => {
     const num = String(i + 1).padStart(2, '0');
     let imgHtml = '';
@@ -1280,7 +1316,7 @@ function renderStamps() {
     const refIndicator = c.refImage
       ? `<div class="stamp-ref-thumb"><img src="${c.refImage.dataUrl}"><button class="x" onclick="clearStampRefImage(${i})" title="個別参考画像を解除">✕</button></div>`
       : ((state.refImages && state.refImages.length) ? `<div style="font-size:10px;color:#06c755;text-align:center;margin-top:2px">📎 全体の参考画像(${state.refImages.length}枚)を使用</div>` : '');
-    html += `<div class="stamp-card">
+    html += `<div class="stamp-card" ondragover="event.preventDefault(); this.classList.add('drop-hover')" ondragleave="this.classList.remove('drop-hover')" ondrop="onStampDrop(${i}, event)">
       <div class="stamp-img">${imgHtml}</div>
       <div class="stamp-caption">${num}. ${escHtml(c.text)}</div>
       <div style="font-size:11px;color:#888;text-align:center">${escHtml(c.emotion)}</div>
