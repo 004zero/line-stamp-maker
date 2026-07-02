@@ -258,6 +258,14 @@
         <div class="tone-row" id="toneRow"></div>
         <div style="font-size:11px;color:#888;margin-top:6px">複数選ぶとスタンプごとに口調をミックスします（例：敬語＋タメ口）。未選択ならカジュアルなタメ口になります。</div>
       </div>
+      <div class="form-group">
+        <label class="form-label">セリフの決め方</label>
+        <div class="radio-row" id="captionModeRow">
+          <div class="radio-pill active" data-cmode="fresh" onclick="setCaptionMode('fresh')">✨ 新しく考える（おまかせ）</div>
+          <div class="radio-pill" data-cmode="extract" onclick="setCaptionMode('extract')">📋 参考画像の文字を使う</div>
+        </div>
+        <div style="font-size:11px;color:#888;margin-top:6px">「参考画像の文字を使う」は、アップした画像に書かれているセリフをそのまま読み取ります（<b>参考画像が必要</b>・口調やテーマは無視されます）。</div>
+      </div>
       <div class="form-grid-3">
         <div class="form-group" style="margin-bottom:0">
           <label class="form-label">スタンプ個数</label>
@@ -363,6 +371,7 @@ const state = {
   style: 'シンプル線画・パステル',
   count: 8,
   tones: ['casual'],   // 選択中の口調キー（複数可）。空ならカジュアル扱い
+  captionMode: 'fresh', // 'fresh'=新しく考える / 'extract'=参考画像の文字を読み取る
   captions: [],     // [{ text, emotion, composition, customPrompt, refImage:{name,dataUrl,blob}|null, image, status, error }]
   generatingCaptions: false,
   refImages: [],    // [{ name, dataUrl, blob }] — global references applied to all stamps
@@ -378,6 +387,7 @@ function load() {
     state.style     = d.style     || state.style;
     state.count     = d.count     || 8;
     state.tones     = Array.isArray(d.tones) ? d.tones : ['casual'];
+    state.captionMode = d.captionMode || 'fresh';
     state.refStrength = d.refStrength || 'high';
     state.refImages = [];   // 参考画像はlocalStorageに保存しない（大きすぎるため）。IndexedDBのセット復元時のみ復活
     state.captions  = (d.captions || []).map(c => ({
@@ -412,6 +422,7 @@ function save() {
       style: state.style,
       count: state.count,
       tones: state.tones,
+      captionMode: state.captionMode,
       refStrength: state.refStrength,
       captions: lightCaptions,
     }));
@@ -425,6 +436,14 @@ function setCount(n) {
   state.count = n;
   document.querySelectorAll('[data-count]').forEach(el => {
     el.classList.toggle('active', Number(el.dataset.count) === n);
+  });
+  save();
+}
+
+function setCaptionMode(m) {
+  state.captionMode = m;
+  document.querySelectorAll('[data-cmode]').forEach(el => {
+    el.classList.toggle('active', el.dataset.cmode === m);
   });
   save();
 }
@@ -472,6 +491,9 @@ function bindInputs() {
   s.addEventListener('change', () => { state.style = s.value; save(); });
   document.querySelectorAll('[data-count]').forEach(el => {
     el.classList.toggle('active', Number(el.dataset.count) === state.count);
+  });
+  document.querySelectorAll('[data-cmode]').forEach(el => {
+    el.classList.toggle('active', el.dataset.cmode === (state.captionMode || 'fresh'));
   });
   const rs = document.getElementById('refStrengthSelect');
   if (rs) rs.value = state.refStrength || 'high';
@@ -677,6 +699,7 @@ function toneInstruction() {
 async function generateCaptions() {
   if (!state.apiKey) { alert('OpenAI APIキーを設定してください'); openSettings(); return; }
   if (!state.theme.trim() && !((state.refImages || []).length)) { alert('テーマを入力するか、参考画像をアップしてください'); return; }
+  if (state.captionMode === 'extract' && !((state.refImages || []).length)) { alert('「参考画像の文字を使う」には参考画像が必要です。\n「③ 参考画像」に画像をアップするか、「✨ 新しく考える」に切り替えてください。'); return; }
 
   state.generatingCaptions = true;
   const btn = document.getElementById('genCaptionsBtn');
@@ -685,8 +708,22 @@ async function generateCaptions() {
 
   const phrases = POPULAR_PHRASES.slice(0, state.count);
   const refImg = (state.refImages && state.refImages[0]) ? state.refImages[0] : null;
+  const extractMode = (state.captionMode === 'extract') && !!refImg;
 
-  const systemPrompt = `あなたは人気LINEスタンプの企画者です。LINEで実際に使われる定番セリフ（おはよう/ありがとう/おつかれ/ごめん/了解/がんばれ/泣き/笑い/怒り など）を中心に、ユーザーのテーマに合った${state.count}個のスタンプ案を作ります。
+  let systemPrompt, userPrompt;
+  if (extractMode) {
+    // 📋 参考画像に書かれている文字をそのまま読み取る
+    systemPrompt = `添付画像はLINEスタンプの完成シート（または文字入りのキャラ画像）です。各コマ・各吹き出しに書かれている日本語のセリフ文字を、1つずつ正確に読み取ってください。
+出力は必ずJSON。{"stamps":[{"text":"読み取ったセリフ（画像に書いてある通り正確に）","emotion":"そのコマの表情・感情","composition":"そのコマのポーズ・構図メモ"}, ...]} の形式。
+ルール：
+- 画像に実際に書かれている文字だけを使う。勝手に作ったり言い換えたりしない。
+- 読み取れたセリフの数だけ出す（最大${state.count}個）。多い場合は目立つものから${state.count}個。
+- 「！」や「…」などの記号もできるだけ元の通りに。
+- 各コマのキャラの表情・ポーズも短くメモする。`;
+    userPrompt = `この画像に書かれているスタンプのセリフを全部読み取って、上のJSON形式で返してください（最大${state.count}個）。`;
+  } else {
+    // ✨ 新しく考える（おまかせ）
+    systemPrompt = `あなたは人気LINEスタンプの企画者です。LINEで実際に使われる定番セリフ（おはよう/ありがとう/おつかれ/ごめん/了解/がんばれ/泣き/笑い/怒り など）を中心に、ユーザーのテーマに合った${state.count}個のスタンプ案を作ります。
 出力は必ずJSON。{"stamps":[{"text":"セリフ（10文字以内・短く・吹き出し風）","emotion":"表情・感情","composition":"構図メモ（ポーズ・カメラ）"}, ...]} の形式。
 ルール：
 - 必ず${state.count}個。
@@ -695,7 +732,7 @@ async function generateCaptions() {
 - 参考画像が添付されている場合は、まずその画像をよく見て、キャラの見た目・種類・性格・雰囲気を読み取り、そのキャラ本人が言いそうなセリフ・似合う表情・構図にする。テーマ未入力なら画像だけを手がかりにする。画像に既にセリフや文字が写っていても丸写しせず、新しいLINE向けのセリフを考える（構図やキャラの雰囲気の参考にとどめる）。
 - 実在キャラ・芸能人・ブランド名は避ける。`;
 
-  const userPrompt = `テーマ：${state.theme || '（未入力：添付画像のキャラの雰囲気から判断してください）'}
+    userPrompt = `テーマ：${state.theme || '（未入力：添付画像のキャラの雰囲気から判断してください）'}
 キャラクター設定：${state.character || '（指定なし／テーマや画像からAIが補完）'}
 アートスタイル：${state.style}
 ${toneInstruction()}
@@ -704,6 +741,7 @@ ${toneInstruction()}
 参考にしたい人気の場面ワード：${phrases.join('、')}
 ${refImg ? '※ 添付画像はこのスタンプの主役キャラです。見た目・性格・雰囲気を汲み取り、そのキャラが実際に言いそうなセリフ・似合う表情にしてください。\n' : ''}
 これに基づいて${state.count}個のスタンプ案をJSONで出してください。指定された口調をセリフに必ず反映させてください。`;
+  }
 
   try {
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
