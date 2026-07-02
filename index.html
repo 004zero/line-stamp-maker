@@ -115,6 +115,15 @@
     #cropImg { max-width: 100%; max-height: 58vh; display: block; -webkit-user-drag: none; user-select: none; }
     #cropSel { position: absolute; border: 2px dashed #06c755; background: rgba(6,199,85,0.18); display: none; pointer-events: none; box-shadow: 0 0 0 9999px rgba(0,0,0,0.35); }
 
+    /* 切り抜きトレイ */
+    .clips-tray { margin-bottom: 14px; padding: 10px 12px; border: 1.5px dashed #06c755; border-radius: 8px; background: #f5fdf8; }
+    .clips-tray .clips-title { font-size: 12px; font-weight: 700; color: #2a6b40; margin-bottom: 8px; }
+    .clips-strip { display: flex; flex-wrap: wrap; gap: 8px; }
+    .clip-thumb { position: relative; width: 74px; height: 74px; border: 1.5px solid #06c755; border-radius: 6px; overflow: hidden; background: #fff; cursor: grab; }
+    .clip-thumb:active { cursor: grabbing; }
+    .clip-thumb img { width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+    .clip-thumb .x { position: absolute; top: -6px; right: -6px; background: rgba(0,0,0,0.6); color: #fff; border: 2px solid #fff; width: 20px; height: 20px; border-radius: 50%; font-size: 11px; cursor: pointer; padding: 0; line-height: 1; display: flex; align-items: center; justify-content: center; }
+
     /* Per-stamp custom prompt expand */
     .stamp-custom { display: none; }
     .stamp-custom.open { display: block; }
@@ -334,6 +343,10 @@
     <!-- 画像生成 -->
     <div class="card">
       <div class="card-title"><span class="num">4</span>スタンプ画像</div>
+      <div class="clips-tray" id="clipsTray" style="display:none">
+        <div class="clips-title">✂ 切り抜きトレイ（下のスタンプへ<strong>ドラッグ＆ドロップ</strong>で割り当て）</div>
+        <div class="clips-strip" id="clipsStrip"></div>
+      </div>
       <div class="actions-bar" style="margin-top:0; margin-bottom:14px">
         <div class="info" id="genInfo"></div>
         <button class="btn btn-secondary btn-sm" onclick="exportToFolder()" id="folderBtn" disabled style="display:none">📂 フォルダに保存</button>
@@ -375,7 +388,7 @@
   <div class="modal-bg" id="cropModal">
     <div class="modal" style="max-width:660px">
       <h2>✂ シートから1コマを切り抜く</h2>
-      <div class="note" style="margin-top:0;margin-bottom:12px">使いたい1コマを<strong>ドラッグで囲んで</strong>、下で使い道を選び「切り抜いて使う」を押してください。</div>
+      <div class="note" style="margin-top:0;margin-bottom:12px">使いたい1コマを<strong>ドラッグで囲んで</strong>、下で使い道を選び「切り抜いて使う」を押してください。<strong>元のシートは消えません</strong>ので、続けて別のコマも切り抜けます。</div>
       <div style="text-align:center;background:#f4f4f4;border-radius:8px;padding:10px;">
         <div id="cropStage" onmousedown="cropPointerDown(event)" onmousemove="cropPointerMove(event)" onmouseup="cropPointerUp(event)" ontouchstart="cropPointerDown(event)" ontouchmove="cropPointerMove(event)" ontouchend="cropPointerUp(event)">
           <img id="cropImg" alt="crop source">
@@ -406,6 +419,7 @@ const state = {
   captions: [],     // [{ text, emotion, composition, customPrompt, refImage:{name,dataUrl,blob}|null, image, status, error }]
   generatingCaptions: false,
   refImages: [],    // [{ name, dataUrl, blob }] — global references applied to all stamps
+  clips: [],        // [{ name, dataUrl, blob }] — シートから切り抜いた1コマ置き場（ドラッグで割り当て）
   refStrength: 'high', // 'exact' | 'high' | 'medium' | 'low' — how closely to follow the reference
 };
 
@@ -421,6 +435,7 @@ function load() {
     state.captionMode = d.captionMode || 'fresh';
     state.refStrength = d.refStrength || 'high';
     state.refImages = [];   // 参考画像はlocalStorageに保存しない（大きすぎるため）。IndexedDBのセット復元時のみ復活
+    state.clips = [];       // 切り抜きトレイもセッション内のみ（保存しない）
     state.captions  = (d.captions || []).map(c => ({
       text: c.text || '',
       emotion: c.emotion || '',
@@ -662,13 +677,13 @@ function openCropFromRef() {
   // 使い道セレクタを作る：全体の参考画像 or 各スタンプへ割り当て
   const tsel = document.getElementById('cropTarget');
   if (tsel) {
-    let opts = `<option value="global">全体の参考画像にする（全スタンプ共通）</option>`;
+    let opts = `<option value="tray">切り抜きトレイに入れる（あとでスタンプにドラッグ）</option>`;
     state.captions.forEach((c, i) => {
-      const label = `スタンプ ${String(i + 1).padStart(2, '0')}. ${(c.text || '').slice(0, 12)}`;
+      const label = `スタンプ ${String(i + 1).padStart(2, '0')}. ${(c.text || '').slice(0, 12)} に割り当て`;
       opts += `<option value="${i}">${escHtml(label)}</option>`;
     });
     tsel.innerHTML = opts;
-    tsel.value = 'global';
+    tsel.value = 'tray';
   }
   document.getElementById('cropModal').classList.add('open');
 }
@@ -712,6 +727,7 @@ function applyCrop() {
   const box = _crop && _crop.box;
   if (!box || box.W < 5 || box.H < 5) { alert('切り抜く範囲をドラッグで囲んでください'); return; }
   const dispW = img.clientWidth, dispH = img.clientHeight;
+  if (!dispW || !dispH) { alert('画像の読み込みが完了していません。少し待ってからもう一度お試しください。'); return; }
   const sx = img.naturalWidth / dispW, sy = img.naturalHeight / dispH;
   const cx = Math.round(box.L * sx), cy = Math.round(box.T * sy);
   const cw = Math.max(1, Math.round(box.W * sx)), ch = Math.max(1, Math.round(box.H * sy));
@@ -722,10 +738,12 @@ function applyCrop() {
     const reader = new FileReader();
     reader.onloadend = () => {
       const cropImg = { name: 'crop.png', dataUrl: reader.result, blob };
-      const target = (document.getElementById('cropTarget') || {}).value || 'global';
-      if (target === 'global') {
-        state.refImages = [cropImg];
-        renderRefImage();
+      const target = (document.getElementById('cropTarget') || {}).value || 'tray';
+      // シート（元の参考画像）は消さずに残す
+      if (target === 'tray') {
+        state.clips = state.clips || [];
+        state.clips.push(cropImg);
+        renderClips();
       } else {
         const idx = parseInt(target, 10);
         if (!isNaN(idx) && state.captions[idx]) {
@@ -757,14 +775,45 @@ function onStampRefFile(i, e) {
   e.target.value = '';
 }
 
-// スタンプカードに画像ファイルをドラッグ＆ドロップ → そのスタンプ専用の参考画像に
+// 切り抜きトレイの描画
+function renderClips() {
+  const tray  = document.getElementById('clipsTray');
+  const strip = document.getElementById('clipsStrip');
+  if (!tray || !strip) return;
+  const clips = state.clips || [];
+  if (!clips.length) { tray.style.display = 'none'; strip.innerHTML = ''; return; }
+  tray.style.display = '';
+  strip.innerHTML = clips.map((cl, idx) =>
+    `<div class="clip-thumb" draggable="true" ondragstart="onClipDragStart(event,${idx})" title="スタンプにドラッグして割り当て"><img src="${cl.dataUrl}" alt="clip"><button class="x" onclick="removeClip(${idx})" title="この切り抜きを削除">✕</button></div>`
+  ).join('');
+}
+function onClipDragStart(e, idx) {
+  e.dataTransfer.setData('text/clip-index', String(idx));
+  e.dataTransfer.effectAllowed = 'copy';
+}
+function removeClip(idx) {
+  (state.clips || []).splice(idx, 1);
+  renderClips();
+}
+
+// スタンプカードへ、①トレイの切り抜き ②PCの画像ファイル をドロップ → そのスタンプ専用の参考画像に
 function onStampDrop(i, e) {
   e.preventDefault();
   const card = e.currentTarget;
   if (card) card.classList.remove('drop-hover');
+  // ① 切り抜きトレイからのドラッグ
+  const ci = e.dataTransfer.getData('text/clip-index');
+  if (ci !== '' && ci != null && !isNaN(parseInt(ci, 10))) {
+    const clip = (state.clips || [])[parseInt(ci, 10)];
+    if (clip) {
+      state.captions[i].refImage = { name: clip.name, dataUrl: clip.dataUrl, blob: clip.blob };
+      renderStamps();
+      return;
+    }
+  }
+  // ② PCからの画像ファイル
   const file = Array.from(e.dataTransfer.files || []).find(f => f.type.startsWith('image/'));
   if (file) setStampRefImage(i, file);
-  else alert('画像ファイルをドロップしてください');
 }
 
 function clearStampRefImage(i) {
@@ -1056,8 +1105,8 @@ function buildImagePrompt(c) {
     const strength = state.refStrength || 'high';
     if (strength === 'same') {
       // そのまま同じ — 画像をいじらず、文字だけのせる
-      refBlock = `CRITICAL — REFERENCE FIDELITY: IDENTICAL (VERBATIM CHARACTER).
-Take the character shown in the reference and reproduce it EXACTLY as-is: same face, same outfit, same colors, same art style, same drawing. Do NOT restyle, re-illustrate, or change the look — it must look like it was cut straight out of the reference, keeping the same kind of pose and expression the character has there.
+      refBlock = `CRITICAL — REFERENCE FIDELITY: IDENTICAL (VERBATIM COPY, TEXT INCLUDED).
+Reproduce the reference EXACTLY as-is: same character, same pose, same expression, same colors, same art style, same decorations (hearts, sparkles, etc.), AND keep ALL text / letters / Japanese captions exactly as they appear — same wording, same spelling, same position, same font. Do NOT change, add, remove, translate, restyle, or redraw any text or detail. Output a faithful copy of the reference.
 Ignore the art-style description, the emotion/pose instructions, and the caption instruction below.`;
     } else if (strength === 'exact') {
       // 写真そっくり — photo-faithful, almost untouched
@@ -1084,9 +1133,9 @@ Borrow only the overall mood and color palette from the reference. The character
     refBlock += `
 IMPORTANT — the reference may show the character in MULTIPLE poses, as a full sticker sheet / grid, and may already contain Japanese caption text or speech bubbles. Use the reference ONLY as a guide to the character's design (face, hairstyle, outfit, colors, proportions, accessories such as a lanyard/ID card). Output EXACTLY ONE single character in ONE pose — never recreate a grid or several characters side by side. Do NOT copy, keep, or redraw any text/letters that appear in the reference; the ONLY text allowed in the output is the caption specified below.`;
   } else if (usingRef && sameMode) {
-    // 「そのまま同じ」でもシート全体のコピーは防ぐ（1体だけを忠実に）
+    // 「そのまま同じ」：1コマなら丸ごと、シートなら1コマ分だけ（文字も含めて）忠実に
     refBlock += `
-IMPORTANT — output EXACTLY ONE single character, large and centered on a transparent background. If the reference is a sticker sheet / grid showing the character in many small poses, do NOT reproduce or shrink the whole grid and do NOT tile multiple copies — pick ONE clear representative pose and draw just that one character faithfully.`;
+If the reference is already a single stamp / cell, copy that whole cell — the character TOGETHER WITH its caption text and any decorations — faithfully, large and centered. If the reference is a full sticker sheet / grid of many cells, reproduce ONLY ONE complete cell (one character together with THAT cell's own text and decorations) large and centered — do NOT tile or shrink the whole grid, and never drop the text.`;
   }
 
   const customLine = c.customPrompt ? `Per-stamp extra instruction: ${c.customPrompt}` : '';
@@ -1100,7 +1149,7 @@ ART STYLE (this is the dominant visual direction — strictly follow):
 ${styleDesc}
 
 Subject: ${state.theme}. ${state.character || ''}
-This is a Japanese LINE messenger sticker. Single subject centered on a fully transparent background (no scenery, no background elements at all).
+This is a Japanese LINE messenger sticker.${sameMode ? ' Keep it faithful to the reference (a single stamp), with a clean/transparent background like the reference.' : ' Single subject centered on a fully transparent background (no scenery, no background elements at all).'}
 ${sameMode ? '' : `Emotion / facial expression: ${c.emotion}.
 Pose / composition: ${c.composition}.`}
 ${customLine}
@@ -1292,7 +1341,7 @@ function renderStamps() {
     refreshSaveBtn();
     return;
   }
-  let html = `<div style="font-size:11px;color:#888;margin-bottom:10px">💡 各スタンプに<strong>画像ファイルをドラッグ＆ドロップ</strong>すると、そのスタンプ専用の参考画像になります（🖼ボタンや「✂1コマを切り抜く」からの割り当てもOK）。</div><div class="stamps-grid">`;
+  let html = `<div style="font-size:11px;color:#888;margin-bottom:10px">💡 上の<strong>切り抜きトレイ</strong>や<strong>PCの画像</strong>を各スタンプへ<strong>ドラッグ＆ドロップ</strong>すると、そのスタンプ専用の参考画像になります（🖼ボタンからの指定もOK）。</div><div class="stamps-grid">`;
   state.captions.forEach((c, i) => {
     const num = String(i + 1).padStart(2, '0');
     let imgHtml = '';
@@ -1605,6 +1654,7 @@ load();
 bindInputs();
 refreshApiStatus();
 renderRefImage();
+renderClips();
 renderCaptions();
 renderStamps();
 renderHistory();
