@@ -346,6 +346,10 @@
       <div class="clips-tray" id="clipsTray" style="display:none">
         <div class="clips-title">✂ 切り抜きトレイ（下のスタンプへ<strong>ドラッグ＆ドロップ</strong>で割り当て）</div>
         <div class="clips-strip" id="clipsStrip"></div>
+        <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-secondary btn-sm" onclick="assignClipsInOrder()">➡ 切り抜きを順番にスタンプへ割り当て</button>
+          <button class="btn btn-danger btn-sm" onclick="state.clips=[]; renderClips();">✕ トレイを空に</button>
+        </div>
       </div>
       <div class="actions-bar" style="margin-top:0; margin-bottom:14px">
         <div class="info" id="genInfo"></div>
@@ -576,7 +580,7 @@ function updateStyleHint() {
   const st = state.refStrength || 'high';
   let msg, dim = false;
   if (hasRef && st === 'same') {
-    msg = '🖼 「そのまま同じ」モード中：<b>画像を文字ごと完全コピー</b>します（表情・ポーズ・元の文字はそのまま／<b>セリフ欄は反映されません</b>）。1枚ずつ違う絵にするには、各スタンプの🖼から個別に画像を指定してください。';
+    msg = '🖼 「そのまま同じ」モード中：各スタンプに<b>切り抜き画像を割り当てると、その画像をそのままスタンプに使います</b>（AI描き直しなし＝<b>文字も100%そのまま・無料</b>）。割り当てが無いスタンプだけ、全体の参考画像からAIが再現します（この場合は吹き出し文字が消えることがあります）。';
     dim = true;
   } else if (hasRef && st === 'exact') {
     msg = '🖼 参考画像「そっくり」モード中：<b>アートスタイルは無視</b>され、アップした画像の絵柄がそのまま使われます。<b>自作キャラを崩したくない人はこれ。</b>';
@@ -794,6 +798,18 @@ function onClipDragStart(e, idx) {
 function removeClip(idx) {
   (state.clips || []).splice(idx, 1);
   renderClips();
+}
+// トレイの切り抜きを、スタンプ01→02…の順に割り当てる
+function assignClipsInOrder() {
+  const clips = state.clips || [];
+  if (!clips.length) { alert('先にシートから1コマを切り抜いてトレイに入れてください'); return; }
+  if (!state.captions.length) { alert('先にセリフ案を作ってください'); return; }
+  const n = Math.min(clips.length, state.captions.length);
+  for (let i = 0; i < n; i++) {
+    state.captions[i].refImage = { name: clips[i].name, dataUrl: clips[i].dataUrl, blob: clips[i].blob };
+  }
+  renderStamps();
+  alert(`${n}個の切り抜きを、スタンプ 01〜${String(n).padStart(2, '0')} に順番に割り当てました。\n忠実度「そのまま同じ」で生成すると、その画像がそのままスタンプになります（文字もそのまま）。`);
 }
 
 // スタンプカードへ、①トレイの切り抜き ②PCの画像ファイル をドロップ → そのスタンプ専用の参考画像に
@@ -1165,6 +1181,21 @@ async function generateOneImage(i) {
   c.status = 'gen';
   c.error = null;
   renderStamps();
+
+  // 「そのまま同じ」で、このスタンプに切り抜き画像が割り当てられている場合は
+  // AIで描き直さず、その画像をそのままスタンプとして使う（文字も100%保持・無料・一瞬）
+  if (state.refStrength === 'same' && c.refImage && c.refImage.dataUrl && c.refImage.dataUrl.indexOf(',') > -1) {
+    try {
+      c.image = c.refImage.dataUrl.split(',')[1];
+      c.status = 'done';
+      save();
+    } catch (e) {
+      c.status = 'err';
+      c.error = e.message || String(e);
+    }
+    renderStamps();
+    return;
+  }
 
   const refBlobs = (c.refImage && c.refImage.blob)
     ? [c.refImage.blob]
