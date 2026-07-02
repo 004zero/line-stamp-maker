@@ -331,6 +331,7 @@
         <div class="info" id="genInfo"></div>
         <button class="btn btn-secondary btn-sm" onclick="exportToFolder()" id="folderBtn" disabled style="display:none">📂 フォルダに保存</button>
         <button class="btn btn-secondary btn-sm" onclick="downloadZip()" id="zipBtn" disabled>📦 ZIPでまとめてDL</button>
+        <button class="btn btn-danger btn-sm" onclick="stopGeneration()" id="stopGenBtn" style="display:none">⛔ 生成を止める</button>
         <button class="btn btn-primary btn-sm" onclick="generateAllImages()" id="genAllBtn" disabled>🎨 全スタンプ画像を一括生成</button>
       </div>
       <div id="stampsArea">
@@ -923,9 +924,9 @@ function buildImagePrompt(c) {
     const strength = state.refStrength || 'high';
     if (strength === 'same') {
       // そのまま同じ — 画像をいじらず、文字だけのせる
-      refBlock = `CRITICAL — REFERENCE FIDELITY: IDENTICAL (VERBATIM).
-Reproduce the reference image EXACTLY as-is: the SAME single character, SAME pose, SAME facial expression, SAME composition, SAME colors, SAME details, AND keep any text / letters that already appear in the reference EXACTLY as they are, in the same place and font. Do NOT change the pose or expression. Do NOT add, remove, replace, translate, restyle, or redraw any text. Output the reference image essentially unchanged — like a faithful copy.
-Ignore the art-style description, the emotion/pose instructions, AND the caption instruction below — the reference image itself (including its own existing text) is the finished artwork.`;
+      refBlock = `CRITICAL — REFERENCE FIDELITY: IDENTICAL (VERBATIM CHARACTER).
+Take the character shown in the reference and reproduce it EXACTLY as-is: same face, same outfit, same colors, same art style, same drawing. Do NOT restyle, re-illustrate, or change the look — it must look like it was cut straight out of the reference, keeping the same kind of pose and expression the character has there.
+Ignore the art-style description, the emotion/pose instructions, and the caption instruction below.`;
     } else if (strength === 'exact') {
       // 写真そっくり — photo-faithful, almost untouched
       refBlock = `CRITICAL — REFERENCE FIDELITY: PHOTO-EXACT.
@@ -947,10 +948,13 @@ Borrow only the overall mood and color palette from the reference. The character
   const sameMode = usingRef && (state.refStrength || 'high') === 'same';
 
   // 参考画像が「複数ポーズが並んだ完成シート」や「文字入り」でも崩れないようガード
-  // 「そのまま同じ」モードは画像を文字ごと丸ごと再現したいので、このガードは適用しない
   if (usingRef && !sameMode) {
     refBlock += `
 IMPORTANT — the reference may show the character in MULTIPLE poses, as a full sticker sheet / grid, and may already contain Japanese caption text or speech bubbles. Use the reference ONLY as a guide to the character's design (face, hairstyle, outfit, colors, proportions, accessories such as a lanyard/ID card). Output EXACTLY ONE single character in ONE pose — never recreate a grid or several characters side by side. Do NOT copy, keep, or redraw any text/letters that appear in the reference; the ONLY text allowed in the output is the caption specified below.`;
+  } else if (usingRef && sameMode) {
+    // 「そのまま同じ」でもシート全体のコピーは防ぐ（1体だけを忠実に）
+    refBlock += `
+IMPORTANT — output EXACTLY ONE single character, large and centered on a transparent background. If the reference is a sticker sheet / grid showing the character in many small poses, do NOT reproduce or shrink the whole grid and do NOT tile multiple copies — pick ONE clear representative pose and draw just that one character faithfully.`;
   }
 
   const customLine = c.customPrompt ? `Per-stamp extra instruction: ${c.customPrompt}` : '';
@@ -1063,12 +1067,22 @@ async function generateOneImage(i) {
   renderStamps();
 }
 
+let genCancel = false;
+function stopGeneration() {
+  genCancel = true;
+  const sb = document.getElementById('stopGenBtn');
+  if (sb) { sb.disabled = true; sb.innerHTML = '⛔ 停止中…'; }
+}
+
 async function generateAllImages() {
   if (!state.apiKey) { alert('APIキー未設定'); openSettings(); return; }
   if (!state.captions.length) return;
+  genCancel = false;
   const btn = document.getElementById('genAllBtn');
+  const stopBtn = document.getElementById('stopGenBtn');
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span>生成中...';
+  if (stopBtn) { stopBtn.style.display = ''; stopBtn.disabled = false; stopBtn.innerHTML = '⛔ 生成を止める'; }
 
   const CONCURRENCY = 3;
   const indices = state.captions.map((_, i) => i);
@@ -1078,6 +1092,7 @@ async function generateAllImages() {
     for (let w = 0; w < CONCURRENCY; w++) {
       workers.push((async () => {
         while (cursor < indices.length) {
+          if (genCancel) break;   // 中止ボタンが押されたら、これ以上新しい生成を始めない
           const i = indices[cursor++];
           try {
             await generateOneImage(i);
@@ -1095,7 +1110,18 @@ async function generateAllImages() {
   } finally {
     btn.disabled = false;
     btn.innerHTML = '🎨 全スタンプ画像を一括生成';
+    if (stopBtn) stopBtn.style.display = 'none';
+    // 中止で生成中のまま残ったカードを未生成に戻す
+    if (genCancel) state.captions.forEach(c => { if (c.status === 'gen') c.status = 'idle'; });
+    renderStamps();
     refreshZipBtn();
+  }
+
+  if (genCancel) {
+    const done = state.captions.filter(c => c.status === 'done').length;
+    genCancel = false;
+    updateGenInfo();
+    return; // 中止時はエラー集計のアラートを出さない
   }
 
   const errs = state.captions.filter(c => c.status === 'err');
