@@ -379,7 +379,7 @@
 
       <div style="margin-top:18px;border-top:1px dashed #e0e0e0;padding-top:14px">
         <div style="font-weight:800;color:#06c755;font-size:14px;margin-bottom:6px">🏷 LINE提出用：メイン画像・タブ画像</div>
-        <div style="font-size:12px;color:#888;margin-bottom:10px">LINEにはスタンプ本体（最大 <strong>370×320</strong>）に加えて、<strong>メイン画像 240×240</strong> と <strong>タブ画像 96×74</strong> が必要です。どのスタンプから作るか選んで「作成」。<strong>ZIPには自動で main.png / tab.png が入ります</strong>（スタンプ本体もLINEサイズに自動縮小されます）。</div>
+        <div style="font-size:12px;color:#888;margin-bottom:10px">LINEには スタンプ本体（最大 <strong>370×320</strong>）＋ <strong>メイン画像 240×240</strong> ＋ <strong>タブ画像 96×74</strong> が必要です。下でスタンプを選んで「作成」→ 下の⬇で <strong>main.png / tab.png</strong> を保存し、LINEの「メイン画像」「タブ画像」ページにそれぞれアップします。<br>スタンプ本体は「📦 ZIP」に <strong>01.png〜 の連番</strong>で入ります（自動で<strong>LINEサイズ・偶数px・透過PNG</strong>に調整。LINEのZIP一括アップに対応）。</div>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
           <select id="mainSrcSelect" class="form-select" style="max-width:280px"></select>
           <button class="btn btn-primary btn-sm" onclick="makeLineImages()">🏷 メイン・タブ画像を作成</button>
@@ -1761,6 +1761,14 @@ function b64src(b64) { return 'data:image/png;base64,' + b64; }
 // 画像をLINEサイズにリサイズしてbase64(png)を返す。
 // exact=false: 縦横比を保って maxW×maxH に収まる大きさに（余白なし）
 // exact=true : ちょうど maxW×maxH のキャンバスに中央配置（透明余白つき）
+// LINE規格：80〜max・偶数pxに丸める
+function clampEven(v, min, max) {
+  v = Math.round(v);
+  if (v > max) v = max;
+  if (v < min) v = min;
+  if (v % 2 !== 0) v = (v > min) ? v - 1 : v + 1;
+  return v;
+}
 function sizeImage(src, maxW, maxH, exact) {
   return new Promise((resolve) => {
     const img = new Image();
@@ -1768,7 +1776,9 @@ function sizeImage(src, maxW, maxH, exact) {
       try {
         const iw = img.naturalWidth || 1, ih = img.naturalHeight || 1;
         const scale = Math.min(maxW / iw, maxH / ih);
-        const dw = Math.max(1, Math.round(iw * scale)), dh = Math.max(1, Math.round(ih * scale));
+        let dw = Math.round(iw * scale), dh = Math.round(ih * scale);
+        if (!exact) { dw = clampEven(dw, 80, maxW); dh = clampEven(dh, 80, maxH); }
+        else { dw = Math.max(1, dw); dh = Math.max(1, dh); }
         const cw = exact ? maxW : dw, ch = exact ? maxH : dh;
         const cv = document.createElement('canvas'); cv.width = cw; cv.height = ch;
         const ctx = cv.getContext('2d');
@@ -1803,16 +1813,15 @@ async function downloadZip() {
   const done = state.captions.filter(c => c.image);
   if (!done.length) return;
   const zip = new JSZip();
+  // LINEのZIPアップロード用：スタンプ本体のみを 01.png〜 の連番で（main/tabは別ページ用に個別DL）
+  let n = 0;
   for (let i = 0; i < state.captions.length; i++) {
     const c = state.captions[i];
     if (!c.image) continue;
+    n++;
     const b64 = await sizeImage(b64src(c.image), LINE_SIZE.stampW, LINE_SIZE.stampH, false);
-    const name = `${String(i + 1).padStart(2, '0')}_${safeName(c.text)}.png`;
-    zip.file(name, b64, { base64: true });
+    zip.file(`${String(n).padStart(2, '0')}.png`, b64, { base64: true });
   }
-  // メイン画像・タブ画像（作成済みなら同梱）
-  if (state.mainImage) zip.file('main.png', state.mainImage, { base64: true });
-  if (state.tabImage)  zip.file('tab.png',  state.tabImage,  { base64: true });
   const blob = await zip.generateAsync({ type: 'blob' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -2050,11 +2059,12 @@ async function exportToFolder() {
     const dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
     const folderName = `line-stamps_${safeName(state.theme || 'set')}_${new Date().toISOString().slice(0, 10)}`;
     const sub = await dirHandle.getDirectoryHandle(folderName, { create: true });
-    let saved = 0;
+    let saved = 0, n = 0;
     for (let i = 0; i < state.captions.length; i++) {
       const c = state.captions[i];
       if (!c.image) continue;
-      const name = `${String(i + 1).padStart(2, '0')}_${safeName(c.text)}.png`;
+      n++;
+      const name = `${String(n).padStart(2, '0')}.png`;
       const b64 = await sizeImage(b64src(c.image), LINE_SIZE.stampW, LINE_SIZE.stampH, false);
       const fh = await sub.getFileHandle(name, { create: true });
       const w = await fh.createWritable();
