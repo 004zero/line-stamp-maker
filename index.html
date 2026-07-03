@@ -677,7 +677,7 @@ function updateStyleHint() {
 }
 
 // ========== Reference image (global multi + per-stamp) ==========
-const MAX_REF_IMAGES = 4; // gpt-image-1 edits に渡せる枚数の実用上限
+const MAX_REF_IMAGES = 16; // gpt-image-1 edits がAPIで受け付ける上限（枚数が多いほどAI生成は遅く/高くなる点に注意）
 
 function readFileAsDataURL(file) {
   return new Promise((res, rej) => {
@@ -729,13 +729,13 @@ function renderRefImage() {
   if (cropBtn) cropBtn.style.display = imgs.length ? '' : 'none';
   if (imgs.length) {
     let h = imgs.map((im, idx) =>
-      `<div class="ref-thumb"><img src="${im.dataUrl}" alt="ref"><button class="ref-thumb-x" onclick="removeRefImage(${idx})" title="この画像を外す">✕</button></div>`
+      `<div class="ref-thumb"><img src="${im.dataUrl}" alt="ref" style="cursor:pointer" onclick="openCropFromRef(${idx})" title="クリックでこの画像から切り抜き"><button class="ref-thumb-x" onclick="removeRefImage(${idx})" title="この画像を外す">✕</button></div>`
     ).join('');
     if (imgs.length < MAX_REF_IMAGES) {
       h += `<div class="ref-thumb" style="cursor:pointer" onclick="document.getElementById('refFile').click()" title="画像を追加"><span class="ref-thumb-empty">＋</span></div>`;
     }
     thumbs.innerHTML = h;
-    info.innerHTML = `<strong>📎 ${imgs.length}枚</strong>の参考画像をベースに全スタンプを生成します（同じキャラを複数アングルで入れると一貫性が上がります）<br><span style="color:#888">※ 個別カードで別の参考画像を指定するとそちらが優先されます</span>`;
+    info.innerHTML = `<strong>📎 ${imgs.length}枚</strong>の参考画像（最大${MAX_REF_IMAGES}枚）をベースに全スタンプを生成します<br><span style="color:#888">💡 サムネイルを<strong>クリックするとその画像から切り抜き</strong>できます ／ 個別カードの指定が優先 ／ ※AI生成時は枚数が多いほど遅く・高くなります</span>`;
     clr.style.display = '';
     zone.classList.add('has-image');
   } else {
@@ -749,10 +749,10 @@ function renderRefImage() {
 
 // ========== シートから1コマ切り抜き ==========
 let _crop = null;
-function openCropFromRef() {
+function openCropFromRef(idx) {
   const imgs = state.refImages || [];
   if (!imgs.length) { alert('先に参考画像をアップしてください'); return; }
-  const src = imgs[0].dataUrl; // 複数ある場合は最初の1枚を対象に切り抜く
+  const src = (imgs[idx] || imgs[0]).dataUrl; // サムネイルをクリックした画像を対象に（未指定なら1枚目）
   const img = document.getElementById('cropImg');
   const sel = document.getElementById('cropSel');
   sel.style.display = 'none';
