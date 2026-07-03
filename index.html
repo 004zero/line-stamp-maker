@@ -362,6 +362,11 @@
         <div class="info" id="genInfo"></div>
         <button class="btn btn-secondary btn-sm" onclick="exportToFolder()" id="folderBtn" disabled style="display:none">📂 フォルダに保存</button>
         <button class="btn btn-secondary btn-sm" onclick="downloadZip()" id="zipBtn" disabled>📦 ZIPでまとめてDL</button>
+        <label style="font-size:12px;color:#555;display:inline-flex;align-items:center;gap:5px;cursor:pointer;border:1.5px solid #ddd;border-radius:7px;padding:7px 10px" title="オフにするとAPI課金される生成を止めます（切り抜きの直接使用はオフでも動きます）">
+          <input type="checkbox" id="apiEnabledChk" checked onchange="state.apiEnabled=this.checked; save();">
+          🤖 AI生成(API)を使う
+        </label>
+        <button class="btn btn-secondary btn-sm" onclick="generateTestOne()" title="まず1個だけAI生成してキャラの仕上がりを確認（お試し）">🧪 1個だけお試し生成</button>
         <button class="btn btn-danger btn-sm" onclick="stopGeneration()" id="stopGenBtn" style="display:none">⛔ 生成を止める</button>
         <button class="btn btn-primary btn-sm" onclick="generateAllImages()" id="genAllBtn" disabled>🎨 全スタンプ画像を一括生成</button>
       </div>
@@ -440,6 +445,15 @@
         <button class="btn btn-secondary btn-sm" onclick="editUndo()">↩ 元に戻す</button>
         <button class="btn btn-secondary btn-sm" onclick="editRemoveWhite()">白を透明に</button>
       </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+        <span style="font-size:12px;font-weight:700;color:#555">サイズ:</span>
+        <button class="btn btn-secondary btn-sm" onclick="editScale(0.9)">➖ 縮小</button>
+        <button class="btn btn-secondary btn-sm" onclick="editScale(1.1)">➕ 拡大</button>
+        <span style="font-size:12px;font-weight:700;color:#555;margin-left:8px">背景:</span>
+        <button class="btn btn-secondary btn-sm" onclick="document.getElementById('editBgFile').click()">🖼 画像を差し込む</button>
+        <button class="btn btn-secondary btn-sm" onclick="editAIBackground()">🎨 AIで背景を作る</button>
+        <input type="file" id="editBgFile" accept="image/*" style="display:none" onchange="editBgFile(event)">
+      </div>
       <div style="text-align:center;background:repeating-conic-gradient(#f0f0f0 0% 25%, #fff 0% 50%) 50% / 16px 16px;border:1px solid #ddd;border-radius:8px;padding:8px">
         <canvas id="editCanvas" style="max-width:100%;max-height:55vh;touch-action:none;cursor:crosshair"
           onmousedown="editDown(event)" onmousemove="editMove(event)" onmouseup="editUp(event)"
@@ -448,6 +462,18 @@
       <div class="modal-actions">
         <button class="btn btn-secondary" onclick="closeEdit()">キャンセル</button>
         <button class="btn btn-primary" onclick="applyEdit()">✔ 保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 切り抜き選択モーダル -->
+  <div class="modal-bg" id="clipPickerModal">
+    <div class="modal" style="max-width:560px">
+      <h2>✂ 切り抜きを選んで割り当て</h2>
+      <div class="note" style="margin-top:0;margin-bottom:12px">使いたい切り抜きを<strong>クリック</strong>すると、このスタンプの参考画像になります。</div>
+      <div id="clipPickerGrid" style="display:flex;flex-wrap:wrap;gap:10px;max-height:50vh;overflow-y:auto"></div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="closeClipPicker()">閉じる</button>
       </div>
     </div>
   </div>
@@ -469,6 +495,7 @@ const state = {
   bgRemove: true,   // 切り抜きをそのまま使うとき、外周の白背景を透明化する（LINE用）
   mainImage: null,  // LINE提出用メイン画像240×240（base64）
   tabImage: null,   // LINE提出用タブ画像96×74（base64）
+  apiEnabled: true, // AI生成(API)を使うか。オフなら切り抜きの直接使用のみ（課金ガード）
   refStrength: 'high', // 'exact' | 'high' | 'medium' | 'low' — how closely to follow the reference
 };
 
@@ -486,6 +513,7 @@ function load() {
     state.refImages = [];   // 参考画像はlocalStorageに保存しない（大きすぎるため）。IndexedDBのセット復元時のみ復活
     state.clips = [];       // 切り抜きトレイもセッション内のみ（保存しない）
     state.bgRemove = d.bgRemove !== false; // 既定ON
+    state.apiEnabled = d.apiEnabled !== false; // 既定ON
     state.captions  = (d.captions || []).map(c => ({
       text: c.text || '',
       emotion: c.emotion || '',
@@ -521,6 +549,7 @@ function save() {
       captionMode: state.captionMode,
       refStrength: state.refStrength,
       bgRemove: state.bgRemove,
+      apiEnabled: state.apiEnabled,
       captions: lightCaptions,
     }));
   } catch (e) {
@@ -616,6 +645,8 @@ function bindInputs() {
   if (rs) rs.value = state.refStrength || 'high';
   const bg = document.getElementById('bgRemoveChk');
   if (bg) bg.checked = state.bgRemove !== false;
+  const ae = document.getElementById('apiEnabledChk');
+  if (ae) ae.checked = state.apiEnabled !== false;
   renderTonePills();
   updateStyleHint();
 }
@@ -956,6 +987,104 @@ function applyEdit() {
   closeEdit();
 }
 
+// 修正モーダル：キャラの縮小拡大（中央基準）
+function editScale(f) {
+  if (!_edit) return;
+  _editSaveHistory();
+  const cv = _edit.canvas, ctx = _edit.ctx;
+  const snap = document.createElement('canvas'); snap.width = cv.width; snap.height = cv.height;
+  snap.getContext('2d').drawImage(cv, 0, 0);
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  const w = cv.width * f, h = cv.height * f;
+  ctx.drawImage(snap, (cv.width - w) / 2, (cv.height - h) / 2, w, h);
+}
+
+// 修正モーダル：背景をキャラの「後ろ」に敷く（destination-over・全面カバー）
+function _drawBehindCover(img) {
+  const cv = _edit.canvas, ctx = _edit.ctx;
+  const s = Math.max(cv.width / img.width, cv.height / img.height);
+  const w = img.width * s, h = img.height * s;
+  ctx.globalCompositeOperation = 'destination-over';
+  ctx.drawImage(img, (cv.width - w) / 2, (cv.height - h) / 2, w, h);
+  ctx.globalCompositeOperation = 'source-over';
+}
+
+function editBgFile(e) {
+  const f = e.target.files[0]; e.target.value = '';
+  if (!f || !_edit) return;
+  const r = new FileReader();
+  r.onloadend = () => {
+    const img = new Image();
+    img.onload = () => { _editSaveHistory(); _drawBehindCover(img); };
+    img.src = r.result;
+  };
+  r.readAsDataURL(f);
+}
+
+async function editAIBackground() {
+  if (!_edit) return;
+  if (!state.apiKey) { alert('OpenAI APIキーを設定してください'); openSettings(); return; }
+  if (state.apiEnabled === false) { alert('「🤖 AI生成(API)を使う」がオフです。④のスイッチをONにしてください'); return; }
+  const p = prompt('どんな背景にしますか？\n例：桜の公園、青空と雲、シンプルな水玉模様、夜景\n\n※AI生成のためAPI料金がかかります（1回 約$0.04）');
+  if (!p) return;
+  try {
+    const res = await fetch('https://api.openai.com/v1/images/generations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${state.apiKey}` },
+      body: JSON.stringify({
+        model: 'gpt-image-1',
+        prompt: `Background illustration for a LINE sticker: ${p}. NO characters, NO people, NO animals, NO text. Soft and not too busy, so a character placed on top stays readable. Square 1:1.`,
+        n: 1, size: '1024x1024', quality: 'medium', output_format: 'png',
+      }),
+    });
+    const raw = await res.text();
+    if (!res.ok) {
+      let m = ''; try { m = JSON.parse(raw).error?.message || raw; } catch (_) { m = raw; }
+      throw new Error(`HTTP ${res.status}: ${m.slice(0, 200)}`);
+    }
+    const data = JSON.parse(raw);
+    const b64 = data.data && data.data[0] && data.data[0].b64_json;
+    if (!b64) throw new Error('画像データが返りませんでした');
+    const img = new Image();
+    img.onload = () => { _editSaveHistory(); _drawBehindCover(img); };
+    img.src = 'data:image/png;base64,' + b64;
+  } catch (e) {
+    alert('AI背景の生成に失敗：' + e.message);
+  }
+}
+
+// ========== 切り抜き選択（クリックで割り当て） ==========
+let _clipPickTarget = null;
+function openClipPicker(i) {
+  const clips = state.clips || [];
+  if (!clips.length) { alert('切り抜きトレイが空です。\n「③ 参考画像」→「✂ 1コマを切り抜く」で先にトレイに入れてください。'); return; }
+  _clipPickTarget = i;
+  document.getElementById('clipPickerGrid').innerHTML = clips.map((cl, idx) =>
+    `<div class="clip-thumb" style="cursor:pointer;width:90px;height:90px" onclick="pickClip(${idx})" title="クリックで割り当て"><img src="${cl.dataUrl}"></div>`
+  ).join('');
+  document.getElementById('clipPickerModal').classList.add('open');
+}
+function closeClipPicker() {
+  document.getElementById('clipPickerModal').classList.remove('open');
+  _clipPickTarget = null;
+}
+function pickClip(idx) {
+  const clip = (state.clips || [])[idx];
+  if (clip && _clipPickTarget != null && state.captions[_clipPickTarget]) {
+    state.captions[_clipPickTarget].refImage = { name: clip.name, dataUrl: clip.dataUrl, blob: clip.blob };
+    renderStamps();
+  }
+  closeClipPicker();
+}
+
+// ========== 1個だけお試し生成（キャラ決定用） ==========
+function generateTestOne() {
+  if (!state.captions.length) { alert('先に「セリフ案を作る」でセリフを用意してください'); return; }
+  const idx = state.captions.findIndex(c => !c.image);
+  const i = idx === -1 ? 0 : idx;
+  generateOneImage(i);
+}
+
 function clearStampRefImage(i) {
   state.captions[i].refImage = null;
   renderStamps();
@@ -992,6 +1121,16 @@ const STYLE_OPTIONS = {
   '油絵・厚塗り':              'thick impasto oil painting, visible chunky brush strokes, rich textured colors, painterly fine art look',
   '色鉛筆スケッチ':            'colored pencil sketch on white paper, soft grainy texture, hand-drawn lines, hatching shading, sketchbook feel',
   'ピクセルアート':            '16-bit pixel art, low resolution chunky pixels, limited retro game palette, no anti-aliasing, sprite-sheet style',
+  'クレヨン・こども落書き風':  'childlike crayon drawing, waxy crayon texture, wobbly naive lines, playful kindergarten art feel',
+  '和風・浮世絵':              'ukiyo-e Japanese woodblock print style, flat traditional color palette, bold ink outlines, washi paper texture',
+  'ちぎり絵・貼り絵':          'torn-paper collage (chigiri-e), layered colored paper shapes with soft torn edges, handcrafted look',
+  '羊毛フェルト・ぬいぐるみ':  'needle-felted wool character, fuzzy soft fiber texture, handmade plush toy look, cozy warm feel',
+  'クレイ・粘土アニメ風':      'claymation clay model character, visible fingerprints and clay texture, stop-motion animation look',
+  'ゆめかわパステル':          'yumekawaii dreamy pastel aesthetic, lavender/mint/baby-pink palette, sparkles, soft glow, magical girly vibe',
+  'アメコミ風':                'american comic book style, bold dynamic inking, halftone dots, dramatic shading, action comic look',
+  'ネオン・サイバー':          'neon cyberpunk style, glowing neon outlines, futuristic vibrant pink/cyan glow, techy sci-fi mood',
+  '白黒マンガ・ペン画':        'black and white manga pen art, screentone shading, clean ink lines, no color',
+  '絵本・ストーリーブック風':  'storybook illustration, warm gentle colors, soft textured brushwork, whimsical children book feel',
 };
 
 const POPULAR_PHRASES = [
@@ -1365,6 +1504,14 @@ async function generateOneImage(i) {
     return;
   }
 
+  // AI生成(API)スイッチがオフなら、課金される生成はスキップ
+  if (state.apiEnabled === false) {
+    c.status = 'err';
+    c.error = '🤖AI生成(API)がオフのためスキップしました。スイッチをONにするか、切り抜きを割り当てて忠実度「そのまま同じ」をご利用ください（そちらは無料）。';
+    renderStamps();
+    return;
+  }
+
   const refBlobs = (c.refImage && c.refImage.blob)
     ? [c.refImage.blob]
     : (state.refImages || []).map(im => im.blob).filter(Boolean);
@@ -1566,8 +1713,11 @@ function renderStamps() {
       : ((state.refImages && state.refImages.length) ? `<div style="font-size:10px;color:#06c755;text-align:center;margin-top:2px">📎 全体の参考画像(${state.refImages.length}枚)を使用</div>` : '');
     html += `<div class="stamp-card" ondragover="event.preventDefault(); this.classList.add('drop-hover')" ondragleave="this.classList.remove('drop-hover')" ondrop="onStampDrop(${i}, event)">
       <div class="stamp-img">${imgHtml}</div>
-      <div class="stamp-caption">${num}. ${escHtml(c.text)}</div>
-      <div style="font-size:11px;color:#888;text-align:center">${escHtml(c.emotion)}</div>
+      <div style="display:flex;align-items:center;gap:5px">
+        <span style="font-size:12px;font-weight:800;color:#06c755;flex-shrink:0">${num}.</span>
+        <input type="text" value="${escAttr(c.text)}" oninput="updateCaption(${i},'text',this.value)" title="セリフ（ファイル名にもなります）" style="flex:1;min-width:0;font-size:12px;font-weight:700;padding:4px 6px;border:1px solid #eee;border-radius:5px;text-align:center;font-family:inherit">
+      </div>
+      <input type="text" value="${escAttr(c.emotion)}" oninput="updateCaption(${i},'emotion',this.value)" title="表情・感情" placeholder="表情・感情" style="font-size:11px;color:#888;padding:3px 6px;border:1px solid #f4f4f4;border-radius:5px;text-align:center;font-family:inherit">
       ${statusLabel}
       ${refIndicator}
       ${styleBadge}
@@ -1583,6 +1733,7 @@ function renderStamps() {
         <button class="btn btn-secondary btn-sm" onclick="toggleCustom(${i})" title="個別指示">✏️</button>
         <input type="file" id="stampRefFile-${i}" accept="image/*" style="display:none" onchange="onStampRefFile(${i}, event)">
         <button class="btn btn-secondary btn-sm" onclick="document.getElementById('stampRefFile-${i}').click()" title="参考画像（このスタンプだけ）">🖼</button>
+        <button class="btn btn-secondary btn-sm" onclick="openClipPicker(${i})" title="切り抜きトレイから選んで割り当て">✂</button>
         ${c.image ? `<button class="btn btn-secondary btn-sm" onclick="openEdit(${i})" title="修正（消しゴム・ペン）">🖊</button>` : ''}
         ${c.image ? `<button class="btn btn-secondary btn-sm" onclick="downloadOne(${i})" title="ダウンロード">⬇</button>` : ''}
       </div>
