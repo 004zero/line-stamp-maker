@@ -63,7 +63,8 @@
     table.stamp-table .col-act { width: 76px; text-align: center; }
 
     .stamps-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px; }
-    .stamp-card { background: white; border: 1.5px solid #eee; border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 7px; }
+    .stamp-card { position: relative; background: white; border: 1.5px solid #eee; border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 7px; }
+    .stamp-card .stamp-sel { position: absolute; top: 8px; left: 8px; width: 20px; height: 20px; z-index: 3; cursor: pointer; accent-color: #06c755; }
     .stamp-card .stamp-img { width: 100%; aspect-ratio: 1/1; background: repeating-conic-gradient(#f5f5f5 0% 25%, white 0% 50%) 50% / 16px 16px; border-radius: 7px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
     .stamp-card .stamp-img img { width: 100%; height: 100%; object-fit: contain; }
     .stamp-card .stamp-placeholder { font-size: 32px; opacity: 0.3; }
@@ -366,7 +367,6 @@
           <input type="checkbox" id="apiEnabledChk" checked onchange="state.apiEnabled=this.checked; save();">
           🤖 AI生成(API)を使う
         </label>
-        <button class="btn btn-secondary btn-sm" onclick="autoFitAll()" title="全スタンプのキャラの大きさ・位置を自動で均一に揃えます（無料・一瞬）">📐 大きさを揃える</button>
         <button class="btn btn-secondary btn-sm" onclick="generateTestOne()" title="まず1個だけAI生成してキャラの仕上がりを確認（お試し）">🧪 1個だけお試し生成</button>
         <button class="btn btn-danger btn-sm" onclick="stopGeneration()" id="stopGenBtn" style="display:none">⛔ 生成を止める</button>
         <button class="btn btn-primary btn-sm" onclick="generateAllImages()" id="genAllBtn" disabled>🎨 全スタンプ画像を一括生成</button>
@@ -1458,8 +1458,10 @@ Square 1:1 composition. NO copyrighted characters or brand logos. NO violence or
 
 // 外周（画像のふち）につながった白い部分だけを透明にする。
 // フラッドフィルなので、キャラの白い服・目の白など内側の白は消えない。
+// 外周につながった背景を透明化。四隅の実際の色をサンプルするので、白だけでなく
+// うっすら灰色・クリーム色などの背景も消える。内側の白（服・目）は連結してないので残る。
 function whiteToTransparent(dataUrl, tol) {
-  tol = tol || 236;
+  tol = tol || 50; // 背景色との許容色距離
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
@@ -1470,6 +1472,15 @@ function whiteToTransparent(dataUrl, tol) {
         ctx.drawImage(img, 0, 0);
         const id = ctx.getImageData(0, 0, w, h);
         const d = id.data;
+        // 背景色＝四隅の不透明ピクセルの平均色
+        let br = 0, bg = 0, bb = 0, cnt = 0;
+        for (const [x, y] of [[0, 0], [w - 1, 0], [0, h - 1], [w - 1, h - 1]]) {
+          const i = (y * w + x) * 4;
+          if (d[i + 3] > 200) { br += d[i]; bg += d[i + 1]; bb += d[i + 2]; cnt++; }
+        }
+        if (!cnt) { resolve(dataUrl); return; } // 四隅が透明＝すでに透過済み
+        br /= cnt; bg /= cnt; bb /= cnt;
+        const t2 = tol * tol;
         const visited = new Uint8Array(w * h);
         const stack = [];
         const consider = (x, y) => {
@@ -1478,10 +1489,9 @@ function whiteToTransparent(dataUrl, tol) {
           if (visited[p]) return;
           visited[p] = 1;
           const i = p * 4;
-          if (d[i] >= tol && d[i + 1] >= tol && d[i + 2] >= tol) { // 白に近い
-            d[i + 3] = 0; // 透明化
-            stack.push(p);
-          }
+          if (d[i + 3] < 8) { stack.push(p); return; } // すでに透明も通り道にする
+          const dr = d[i] - br, dg = d[i + 1] - bg, db = d[i + 2] - bb;
+          if (dr * dr + dg * dg + db * db <= t2) { d[i + 3] = 0; stack.push(p); }
         };
         for (let x = 0; x < w; x++) { consider(x, 0); consider(x, h - 1); }
         for (let y = 0; y < h; y++) { consider(0, y); consider(w - 1, y); }
@@ -1491,7 +1501,7 @@ function whiteToTransparent(dataUrl, tol) {
         }
         ctx.putImageData(id, 0, 0);
         resolve(cv.toDataURL('image/png'));
-      } catch (e) { resolve(dataUrl); } // 失敗時は元画像のまま
+      } catch (e) { resolve(dataUrl); }
     };
     img.onerror = () => resolve(dataUrl);
     img.src = dataUrl;
@@ -1537,15 +1547,44 @@ function autoFitImage(src) {
   });
 }
 
-async function autoFitAll() {
-  const targets = state.captions.map((c, i) => c.image ? i : -1).filter(i => i >= 0);
-  if (!targets.length) { alert('完成した画像がありません'); return; }
-  if (!confirm(`完成済み ${targets.length}枚の「キャラの大きさ・位置」を自動で均一に揃えます。\n（透明でない部分を検出し、全スタンプ同じ比率・中央配置にします）\nよろしいですか？`)) return;
-  for (const i of targets) {
-    state.captions[i].image = await autoFitImage(b64src(state.captions[i].image));
-  }
-  save();
+// ===== 一括処理（チェックで選択／未選択なら全部） =====
+const selectedStamps = new Set();
+function toggleSelect(i, on) { if (on) selectedStamps.add(i); else selectedStamps.delete(i); updateSelCount(); }
+function updateSelCount() { const el = document.getElementById('selCount'); if (el) el.textContent = selectedStamps.size; }
+function selectAllStamps(on) {
+  selectedStamps.clear();
+  if (on) state.captions.forEach((c, i) => { if (c.image) selectedStamps.add(i); });
   renderStamps();
+}
+function _bulkTargets() {
+  const sel = [...selectedStamps].filter(i => state.captions[i] && state.captions[i].image);
+  if (sel.length) return sel;
+  return state.captions.map((c, i) => c.image ? i : -1).filter(i => i >= 0); // 選択なし→全完成分
+}
+function _bulkBusy(on, label) {
+  ['bulkFitBtn', 'bulkBgBtn', 'bulkAllBtn'].forEach(id => { const b = document.getElementById(id); if (b) b.disabled = on; });
+  const b = document.getElementById('bulkAllBtn'); if (b && on) b.innerHTML = label || '<span class="spinner"></span>処理中…';
+}
+async function bulkAutoFit() {
+  const t = _bulkTargets(); if (!t.length) { alert('完成した画像がありません'); return; }
+  _bulkBusy(true);
+  for (const i of t) state.captions[i].image = await autoFitImage(b64src(state.captions[i].image));
+  save(); _bulkBusy(false); renderStamps();
+}
+async function bulkRemoveBg() {
+  const t = _bulkTargets(); if (!t.length) { alert('完成した画像がありません'); return; }
+  _bulkBusy(true);
+  for (const i of t) { const u = await whiteToTransparent(b64src(state.captions[i].image)); state.captions[i].image = u.split(',')[1]; }
+  save(); _bulkBusy(false); renderStamps();
+}
+async function bulkFix() {
+  const t = _bulkTargets(); if (!t.length) { alert('完成した画像がありません'); return; }
+  _bulkBusy(true);
+  for (const i of t) {
+    const u = await whiteToTransparent(b64src(state.captions[i].image)); // 背景透明
+    state.captions[i].image = await autoFitImage(u);                     // 大きさ揃え
+  }
+  save(); _bulkBusy(false); renderStamps();
 }
 
 async function generateOneImage(i) {
@@ -1754,7 +1793,21 @@ function renderStamps() {
     refreshSaveBtn();
     return;
   }
-  let html = `<div style="font-size:11px;color:#888;margin-bottom:10px">💡 上の<strong>切り抜きトレイ</strong>や<strong>PCの画像</strong>を各スタンプへ<strong>ドラッグ＆ドロップ</strong>すると、そのスタンプ専用の参考画像になります（🖼ボタンからの指定もOK）。</div><div class="stamps-grid">`;
+  const doneCount = state.captions.filter(c => c.image).length;
+  let html = '';
+  if (doneCount) {
+    html += `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px;padding:10px 12px;background:#f7faf8;border:1px solid #e3f0e8;border-radius:8px">
+      <span style="font-size:12px;font-weight:700;color:#555">選択 <span id="selCount">${selectedStamps.size}</span>個</span>
+      <button class="btn btn-secondary btn-sm" onclick="selectAllStamps(true)">全選択</button>
+      <button class="btn btn-secondary btn-sm" onclick="selectAllStamps(false)">解除</button>
+      <span style="color:#ccc">|</span>
+      <button class="btn btn-primary btn-sm" id="bulkAllBtn" onclick="bulkFix()" title="背景透明化＋大きさ揃えをまとめて実行">🎯 まとめて整える</button>
+      <button class="btn btn-secondary btn-sm" id="bulkBgBtn" onclick="bulkRemoveBg()" title="外周の背景を透明にする">🩹 背景を透明に</button>
+      <button class="btn btn-secondary btn-sm" id="bulkFitBtn" onclick="bulkAutoFit()" title="キャラの大きさ・位置を均一に揃える">📐 大きさを揃える</button>
+      <span style="font-size:11px;color:#888">※チェックを付けたスタンプだけに適用（未選択なら全部）</span>
+    </div>`;
+  }
+  html += `<div style="font-size:11px;color:#888;margin-bottom:10px">💡 上の<strong>切り抜きトレイ</strong>や<strong>PCの画像</strong>を各スタンプへ<strong>ドラッグ＆ドロップ</strong>すると、そのスタンプ専用の参考画像になります（🖼ボタンからの指定もOK）。</div><div class="stamps-grid">`;
   state.captions.forEach((c, i) => {
     const num = String(i + 1).padStart(2, '0');
     let imgHtml = '';
@@ -1779,6 +1832,7 @@ function renderStamps() {
       ? `<div class="stamp-ref-thumb"><img src="${c.refImage.dataUrl}"><button class="x" onclick="clearStampRefImage(${i})" title="個別参考画像を解除">✕</button></div>`
       : ((state.refImages && state.refImages.length) ? `<div style="font-size:10px;color:#06c755;text-align:center;margin-top:2px">📎 全体の参考画像(${state.refImages.length}枚)を使用</div>` : '');
     html += `<div class="stamp-card" ondragover="event.preventDefault(); this.classList.add('drop-hover')" ondragleave="this.classList.remove('drop-hover')" ondrop="onStampDrop(${i}, event)">
+      ${c.image ? `<input type="checkbox" class="stamp-sel" ${selectedStamps.has(i) ? 'checked' : ''} onchange="toggleSelect(${i}, this.checked)" title="一括処理の対象に選択">` : ''}
       <div class="stamp-img">${imgHtml}</div>
       <div style="display:flex;align-items:center;gap:5px">
         <span style="font-size:12px;font-weight:800;color:#06c755;flex-shrink:0">${num}.</span>
