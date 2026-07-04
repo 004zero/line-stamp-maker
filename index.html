@@ -1499,6 +1499,30 @@ function whiteToTransparent(dataUrl, tol) {
           const p = stack.pop(); const x = p % w, y = (p / w) | 0;
           consider(x + 1, y); consider(x - 1, y); consider(x, y + 1); consider(x, y - 1);
         }
+        // 第2パス：文字の輪の中など「囲まれて取り残された背景色の小さなポケット」を除去。
+        // 大きな塊（白い服・肌など）は誤って消さないよう、画像の0.6%未満の塊だけ対象。
+        const maxPocket = Math.max(64, Math.floor(w * h * 0.006));
+        const seen = new Uint8Array(w * h);
+        const isBg = (p) => {
+          const i = p * 4;
+          if (d[i + 3] < 8) return false;
+          const dr = d[i] - br, dg = d[i + 1] - bg, db = d[i + 2] - bb;
+          return dr * dr + dg * dg + db * db <= t2;
+        };
+        for (let p0 = 0; p0 < w * h; p0++) {
+          if (seen[p0]) continue;
+          if (!isBg(p0)) { seen[p0] = 1; continue; }
+          // 背景色の連結成分を最後まで集める（大きさで消す/残すを判定するため）
+          const comp = [p0]; seen[p0] = 1; let qi = 0;
+          while (qi < comp.length) {
+            const q = comp[qi++]; const x = q % w, y = (q / w) | 0;
+            if (x < w - 1 && !seen[q + 1] && isBg(q + 1)) { seen[q + 1] = 1; comp.push(q + 1); }
+            if (x > 0     && !seen[q - 1] && isBg(q - 1)) { seen[q - 1] = 1; comp.push(q - 1); }
+            if (y < h - 1 && !seen[q + w] && isBg(q + w)) { seen[q + w] = 1; comp.push(q + w); }
+            if (y > 0     && !seen[q - w] && isBg(q - w)) { seen[q - w] = 1; comp.push(q - w); }
+          }
+          if (comp.length <= maxPocket) { for (const q of comp) d[q * 4 + 3] = 0; }
+        }
         ctx.putImageData(id, 0, 0);
         resolve(cv.toDataURL('image/png'));
       } catch (e) { resolve(dataUrl); }
