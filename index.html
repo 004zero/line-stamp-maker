@@ -441,10 +441,18 @@
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
         <button class="btn btn-primary btn-sm" id="editEraserBtn" onclick="setEditTool('eraser')">🩹 消しゴム</button>
         <button class="btn btn-secondary btn-sm" id="editPenBtn" onclick="setEditTool('pen')">🖊 ペン</button>
+        <button class="btn btn-secondary btn-sm" id="editHandBtn" onclick="setEditTool('hand')" title="ズーム中にドラッグで表示位置を移動">✋ 移動</button>
         <label style="font-size:12px;color:#555;display:inline-flex;align-items:center;gap:5px">太さ<input type="range" id="editSize" min="2" max="90" value="24" style="vertical-align:middle"></label>
         <label style="font-size:12px;color:#555;display:inline-flex;align-items:center;gap:5px">色<input type="color" id="editColor" value="#333333"></label>
         <button class="btn btn-secondary btn-sm" onclick="editUndo()">↩ 元に戻す</button>
         <button class="btn btn-secondary btn-sm" onclick="editRemoveWhite()">白を透明に</button>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+        <span style="font-size:12px;font-weight:700;color:#555">🔍 表示ズーム（見た目だけ・画像は変わりません）:</span>
+        <button class="btn btn-secondary btn-sm" onclick="editZoom(1.5)">🔍＋ 拡大</button>
+        <button class="btn btn-secondary btn-sm" onclick="editZoom(1/1.5)">🔍− 縮小</button>
+        <button class="btn btn-secondary btn-sm" onclick="editZoomReset()">100%</button>
+        <span style="font-size:11px;color:#888">拡大中は「✋移動」でドラッグして位置を動かせます</span>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
         <span style="font-size:12px;font-weight:700;color:#555">サイズ:</span>
@@ -456,7 +464,7 @@
         <button class="btn btn-secondary btn-sm" onclick="editAIBackground()">🎨 AIで背景を作る</button>
         <input type="file" id="editBgFile" accept="image/*" style="display:none" onchange="editBgFile(event)">
       </div>
-      <div style="text-align:center;background:repeating-conic-gradient(#f0f0f0 0% 25%, #fff 0% 50%) 50% / 16px 16px;border:1px solid #ddd;border-radius:8px;padding:8px">
+      <div style="text-align:center;background:repeating-conic-gradient(#f0f0f0 0% 25%, #fff 0% 50%) 50% / 16px 16px;border:1px solid #ddd;border-radius:8px;padding:8px;overflow:hidden">
         <canvas id="editCanvas" style="max-width:100%;max-height:55vh;touch-action:none;cursor:crosshair"
           onmousedown="editDown(event)" onmousemove="editMove(event)" onmouseup="editUp(event)"
           ontouchstart="editDown(event)" ontouchmove="editMove(event)" ontouchend="editUp(event)"></canvas>
@@ -927,7 +935,8 @@ function openEdit(i) {
     canvas.height = img.naturalHeight;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(img, 0, 0);
-    _edit = { i, canvas, ctx, tool: 'eraser', drawing: false, last: null, history: [] };
+    _edit = { i, canvas, ctx, tool: 'eraser', drawing: false, panning: false, last: null, history: [], view: { z: 1, ox: 0, oy: 0 } };
+    _applyView();
     setEditTool('eraser');
     document.getElementById('editModal').classList.add('open');
   };
@@ -936,9 +945,32 @@ function openEdit(i) {
 function closeEdit() { document.getElementById('editModal').classList.remove('open'); _edit = null; }
 function setEditTool(t) {
   if (_edit) _edit.tool = t;
-  const e = document.getElementById('editEraserBtn'), p = document.getElementById('editPenBtn');
-  if (e) { e.classList.toggle('btn-primary', t === 'eraser'); e.classList.toggle('btn-secondary', t !== 'eraser'); }
-  if (p) { p.classList.toggle('btn-primary', t === 'pen'); p.classList.toggle('btn-secondary', t !== 'pen'); }
+  const map = { eraser: 'editEraserBtn', pen: 'editPenBtn', hand: 'editHandBtn' };
+  for (const k in map) {
+    const b = document.getElementById(map[k]);
+    if (b) { b.classList.toggle('btn-primary', t === k); b.classList.toggle('btn-secondary', t !== k); }
+  }
+  const cv = document.getElementById('editCanvas');
+  if (cv) cv.style.cursor = (t === 'hand') ? 'grab' : 'crosshair';
+}
+
+// ===== 表示ズーム（画像データは一切変えない・CSS変形のみ）=====
+function _applyView() {
+  const cv = document.getElementById('editCanvas');
+  if (!cv || !_edit) return;
+  const v = _edit.view;
+  cv.style.transform = `translate(${v.ox}px, ${v.oy}px) scale(${v.z})`;
+}
+function editZoom(f) {
+  if (!_edit) return;
+  _edit.view.z = Math.min(8, Math.max(1, _edit.view.z * f));
+  if (_edit.view.z === 1) { _edit.view.ox = 0; _edit.view.oy = 0; }
+  _applyView();
+}
+function editZoomReset() {
+  if (!_edit) return;
+  _edit.view = { z: 1, ox: 0, oy: 0 };
+  _applyView();
 }
 function _editXY(e) {
   const canvas = _edit.canvas, r = canvas.getBoundingClientRect();
@@ -962,15 +994,34 @@ function _editStroke(a, b) {
 }
 function editDown(e) {
   if (!_edit) return;
+  const t = e.touches && e.touches[0];
+  const cx = t ? t.clientX : e.clientX, cy = t ? t.clientY : e.clientY;
+  if (_edit.tool === 'hand') {
+    // ✋移動：表示位置をドラッグ（画像は変えない）
+    _edit.panning = true;
+    _edit.panStart = { x: cx - _edit.view.ox, y: cy - _edit.view.oy };
+    e.preventDefault();
+    return;
+  }
   _editSaveHistory();
   _edit.scaleBase = null; // 描き込んだら拡大縮小の基準を確定
   _edit.drawing = true; _edit.last = _editXY(e); _editStroke(_edit.last, _edit.last); e.preventDefault();
 }
 function editMove(e) {
-  if (!_edit || !_edit.drawing) return;
+  if (!_edit) return;
+  if (_edit.tool === 'hand' && _edit.panning) {
+    const t = e.touches && e.touches[0];
+    const cx = t ? t.clientX : e.clientX, cy = t ? t.clientY : e.clientY;
+    _edit.view.ox = cx - _edit.panStart.x;
+    _edit.view.oy = cy - _edit.panStart.y;
+    _applyView();
+    e.preventDefault();
+    return;
+  }
+  if (!_edit.drawing) return;
   const p = _editXY(e); _editStroke(_edit.last, p); _edit.last = p; e.preventDefault();
 }
-function editUp() { if (_edit) _edit.drawing = false; }
+function editUp() { if (_edit) { _edit.drawing = false; _edit.panning = false; } }
 function editUndo() { if (_edit && _edit.history.length) { _edit.ctx.putImageData(_edit.history.pop(), 0, 0); _edit.scaleBase = null; } }
 async function editRemoveWhite() {
   if (!_edit) return;
@@ -2265,7 +2316,7 @@ function refreshFolderBtn() {
 
 // ========== Init ==========
 // ステージ外でマウスを離してもドラッグを終了させる
-window.addEventListener('mouseup', () => { if (_crop) _crop.dragging = false; if (_edit) _edit.drawing = false; });
+window.addEventListener('mouseup', () => { if (_crop) _crop.dragging = false; if (_edit) { _edit.drawing = false; _edit.panning = false; } });
 load();
 bindInputs();
 refreshApiStatus();
