@@ -323,7 +323,9 @@
         </div>
         <div class="ref-actions">
           <input type="file" id="refFile" accept="image/*" multiple onchange="onRefFile(event)">
-          <button class="btn btn-secondary btn-sm" onclick="document.getElementById('refFile').click()">📁 画像を選ぶ</button>
+          <input type="file" id="refFileAny" multiple onchange="onRefFile(event)">
+          <button class="btn btn-secondary btn-sm" onclick="document.getElementById('refFile').click()" title="写真アプリから選ぶ（AndroidはGoogleフォト、iPhoneは写真）">📷 写真から選ぶ</button>
+          <button class="btn btn-secondary btn-sm" onclick="document.getElementById('refFileAny').click()" title="スマホ本体・ダウンロード・iCloud・SDカードなどから選ぶ">📂 ファイルから選ぶ</button>
           <button class="btn btn-secondary btn-sm" onclick="openCropFromRef()" id="refCropBtn" style="display:none">✂ 1コマを切り抜く</button>
           <button class="btn btn-danger btn-sm" onclick="clearRefImage()" id="refClearBtn" style="display:none">✕ 解除</button>
         </div>
@@ -741,6 +743,7 @@ function normalizeImageFile(file, maxDim) {
 
 async function addRefImageFromFile(file) {
   if (state.refImages.length >= MAX_REF_IMAGES) { alert(`参考画像は最大${MAX_REF_IMAGES}枚までです`); return; }
+  if (file.type && !file.type.startsWith('image/')) { alert(`「${file.name}」は画像ではないようです。\nJPG・PNG・WebPなどの画像ファイルを選んでください。`); return; }
   if (file.size > 50 * 1024 * 1024) { alert('画像は50MB以下にしてください'); return; }
   try {
     const { dataUrl, blob } = await normalizeImageFile(file, 2048);
@@ -780,7 +783,7 @@ function renderRefImage() {
     zone.classList.add('has-image');
   } else {
     thumbs.innerHTML = `<div class="ref-thumb"><span class="ref-thumb-empty">🖼</span></div>`;
-    info.innerHTML = `「📁 画像を選ぶ」から写真・イラストを追加（PCはドラッグ＆ドロップも可）。<br><strong>アップした画像のキャラ・絵柄・雰囲気を基に全スタンプを生成</strong>します。<br><span style="color:#888">📱 <strong>スマホ・タブレット</strong>：「画像を選ぶ」を押すと写真の選択画面が開き、<strong>Googleフォト・Googleドライブ・カメラロール</strong>から選べます（Androidは「フォト/ドライブ」、iPhoneは「写真」やブラウズから）。<br>💡 1体だけのキャラ画像が最適。文字入り・複数並びの完成シートでもOK。JPG/PNG/WebP対応（iPhoneのHEICは自動変換を試みます）。</span>`;
+    info.innerHTML = `写真・イラストを追加（PCはドラッグ＆ドロップも可）。<br><strong>アップした画像のキャラ・絵柄・雰囲気を基に全スタンプを生成</strong>します。<br><span style="color:#888">📷 <strong>写真から選ぶ</strong>＝写真アプリ（Android：Googleフォト／iPhone：写真）<br>📂 <strong>ファイルから選ぶ</strong>＝スマホ本体・ダウンロード・Googleドライブ・iCloud・SDカードなど<br>💡 1体だけのキャラ画像が最適。文字入り・複数並びの完成シートでもOK。JPG/PNG/WebP対応（iPhoneのHEICは自動変換を試みます）。</span>`;
     clr.style.display = 'none';
     zone.classList.remove('has-image');
   }
