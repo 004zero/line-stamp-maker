@@ -73,8 +73,8 @@
     .stamp-card .stamp-status.done { color: #06c755; font-weight: 700; }
     .stamp-card .stamp-status.err { color: #c0392b; font-weight: 700; }
     .stamp-card .stamp-caption { font-size: 13px; font-weight: 700; color: #333; text-align: center; }
-    .stamp-card .stamp-actions { display: flex; gap: 5px; }
-    .stamp-card .stamp-actions .btn { flex: 1; }
+    .stamp-card .stamp-actions { display: flex; gap: 4px; flex-wrap: wrap; }
+    .stamp-card .stamp-actions .btn { flex: 1 1 0; min-width: 0; padding: 6px 0; font-size: 12px; overflow: hidden; }
     .stamp-card.drop-hover { outline: 2px dashed #06c755; outline-offset: 2px; background: #f5fdf8; }
 
     .spinner { display: inline-block; width: 11px; height: 11px; border: 2px solid rgba(255,255,255,0.4); border-top-color: white; border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: middle; margin-right: 4px; }
@@ -208,7 +208,7 @@
       .stamp-card { padding: 8px; gap: 5px; }
       .stamp-card .stamp-caption { font-size: 12px; }
       .stamp-card .stamp-actions { flex-wrap: wrap; gap: 4px; }
-      .stamp-card .stamp-actions .btn { padding: 8px 4px; font-size: 11px; min-height: 36px; flex: 1; min-width: 40px; }
+      .stamp-card .stamp-actions .btn { padding: 8px 2px; font-size: 11px; min-height: 36px; flex: 1 1 0; min-width: 28px; }
       .stamp-custom textarea, .stamp-custom select { font-size: 14px; }
 
       /* Modal */
@@ -1170,8 +1170,9 @@ function clearStampRefImage(i) {
 }
 
 function toggleCustom(i) {
+  state.captions[i].customOpen = !state.captions[i].customOpen;
   const el = document.getElementById(`custom-${i}`);
-  if (el) el.classList.toggle('open');
+  if (el) el.classList.toggle('open', !!state.captions[i].customOpen);
 }
 
 function updateCustomPrompt(i, value) {
@@ -1911,7 +1912,7 @@ function renderStamps() {
       c.status === 'gen'  ? `<span class="stamp-status gen">生成中</span>` :
       c.status === 'err'  ? `<span class="stamp-status err">失敗</span>` :
                             `<span class="stamp-status">未生成</span>`;
-    const customOpen = (c.customPrompt || c.customStyle) ? 'open' : '';
+    const customOpen = c.customOpen ? 'open' : '';
     const styleOpts = Object.keys(STYLE_OPTIONS).map(s => `<option value="${escAttr(s)}" ${c.customStyle === s ? 'selected' : ''}>${escHtml(s)}</option>`).join('');
     const styleBadge = c.customStyle ? `<div style="font-size:10px;color:#06c755;text-align:center;margin-top:2px">🎨 ${escHtml(c.customStyle)}</div>` : '';
     const refIndicator = c.refImage
