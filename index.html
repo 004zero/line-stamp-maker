@@ -963,6 +963,7 @@ function _editStroke(a, b) {
 function editDown(e) {
   if (!_edit) return;
   _editSaveHistory();
+  _edit.scaleBase = null; // 描き込んだら拡大縮小の基準を確定
   _edit.drawing = true; _edit.last = _editXY(e); _editStroke(_edit.last, _edit.last); e.preventDefault();
 }
 function editMove(e) {
@@ -970,10 +971,11 @@ function editMove(e) {
   const p = _editXY(e); _editStroke(_edit.last, p); _edit.last = p; e.preventDefault();
 }
 function editUp() { if (_edit) _edit.drawing = false; }
-function editUndo() { if (_edit && _edit.history.length) _edit.ctx.putImageData(_edit.history.pop(), 0, 0); }
+function editUndo() { if (_edit && _edit.history.length) { _edit.ctx.putImageData(_edit.history.pop(), 0, 0); _edit.scaleBase = null; } }
 async function editRemoveWhite() {
   if (!_edit) return;
   _editSaveHistory();
+  _edit.scaleBase = null;
   const url = await whiteToTransparent(_edit.canvas.toDataURL('image/png'));
   const img = new Image();
   img.onload = () => { _edit.ctx.clearRect(0, 0, _edit.canvas.width, _edit.canvas.height); _edit.ctx.drawImage(img, 0, 0); };
@@ -993,6 +995,7 @@ function applyEdit() {
 async function editAutoFit() {
   if (!_edit) return;
   _editSaveHistory();
+  _edit.scaleBase = null;
   const cv = _edit.canvas, ctx = _edit.ctx;
   const b64 = await autoFitImage(cv.toDataURL('image/png'));
   const img = new Image();
@@ -1005,19 +1008,27 @@ async function editAutoFit() {
 }
 
 // 修正モーダル：キャラの縮小拡大（中央基準）
+// 拡大→縮小しても端が消えないよう、スケール開始時点の元画像(scaleBase)から毎回描き直す。
+// ペン・消しゴム等で編集した時点で確定（scaleBaseをリセット）。
 function editScale(f) {
   if (!_edit) return;
   _editSaveHistory();
   const cv = _edit.canvas, ctx = _edit.ctx;
-  const snap = document.createElement('canvas'); snap.width = cv.width; snap.height = cv.height;
-  snap.getContext('2d').drawImage(cv, 0, 0);
+  if (!_edit.scaleBase) {
+    const snap = document.createElement('canvas'); snap.width = cv.width; snap.height = cv.height;
+    snap.getContext('2d').drawImage(cv, 0, 0);
+    _edit.scaleBase = snap;
+    _edit.scaleFactor = 1;
+  }
+  _edit.scaleFactor *= f;
+  const w = cv.width * _edit.scaleFactor, h = cv.height * _edit.scaleFactor;
   ctx.clearRect(0, 0, cv.width, cv.height);
-  const w = cv.width * f, h = cv.height * f;
-  ctx.drawImage(snap, (cv.width - w) / 2, (cv.height - h) / 2, w, h);
+  ctx.drawImage(_edit.scaleBase, (cv.width - w) / 2, (cv.height - h) / 2, w, h);
 }
 
 // 修正モーダル：背景をキャラの「後ろ」に敷く（destination-over・全面カバー）
 function _drawBehindCover(img) {
+  _edit.scaleBase = null; // 背景を敷いたら拡大縮小の基準を確定
   const cv = _edit.canvas, ctx = _edit.ctx;
   const s = Math.max(cv.width / img.width, cv.height / img.height);
   const w = img.width * s, h = img.height * s;
