@@ -236,7 +236,7 @@
 </head>
 <body>
   <div class="header">
-    <h1>🟢 LINEスタンプメーカー <span style="font-size:10px;font-weight:400;opacity:0.75">v2026.07.06b</span></h1>
+    <h1>🟢 LINEスタンプメーカー <span style="font-size:10px;font-weight:400;opacity:0.75">v2026.07.06c</span></h1>
     <div class="header-actions">
       <span class="api-status" id="apiStatus">API未設定</span>
       <button class="btn btn-secondary btn-sm" onclick="openSettings()">⚙ 設定</button>
@@ -470,15 +470,19 @@
   <div class="modal-bg" id="editModal">
     <div class="modal" style="max-width:640px">
       <h2>🖊 スタンプを修正</h2>
-      <div class="note" style="margin-top:0;margin-bottom:10px">🩹 消しゴムで<strong>余分な部分を消す</strong>／🖊 ペンで<strong>描き足す</strong>。透明部分は市松模様で表示されます。</div>
+      <div class="note" style="margin-top:0;margin-bottom:10px">🩹 消しゴムで<strong>余分な部分を消す</strong>／🖊 ペンで<strong>描き足す</strong>／💧 スポイトで<strong>画像の色を拾って同じ色で塗る</strong>。透明部分は市松模様で表示されます。</div>
+      <div class="note" id="editParaNote" style="display:none;margin-top:0;margin-bottom:8px;background:#f3ecfd;border-left:3px solid #7b3fbf;color:#5a3d85">🎞 パラパラアニメ：下の<strong>コマ一覧から選んで、1コマずつ</strong>修正できます。消しゴム・ペンの修正を全部のコマにコピーしたいときは「⧉ 全コマへ反映」。</div>
+      <div id="editFrameStrip" style="display:none;flex-wrap:wrap;gap:6px;margin-bottom:10px;align-items:flex-start"></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
         <button class="btn btn-primary btn-sm" id="editEraserBtn" onclick="setEditTool('eraser')">🩹 消しゴム</button>
         <button class="btn btn-secondary btn-sm" id="editPenBtn" onclick="setEditTool('pen')">🖊 ペン</button>
+        <button class="btn btn-secondary btn-sm" id="editPickerBtn" onclick="setEditTool('picker')" title="画像をタップして色を拾う（拾うと自動でペンに切替）">💧 スポイト</button>
         <button class="btn btn-secondary btn-sm" id="editHandBtn" onclick="setEditTool('hand')" title="ズーム中にドラッグで表示位置を移動">✋ 移動</button>
         <label style="font-size:12px;color:#555;display:inline-flex;align-items:center;gap:5px">太さ<input type="range" id="editSize" min="2" max="90" value="24" style="vertical-align:middle"></label>
         <label style="font-size:12px;color:#555;display:inline-flex;align-items:center;gap:5px">色<input type="color" id="editColor" value="#333333"></label>
         <button class="btn btn-secondary btn-sm" onclick="editUndo()">↩ 元に戻す</button>
         <button class="btn btn-secondary btn-sm" onclick="editRemoveWhite()">白を透明に</button>
+        <button class="btn btn-secondary btn-sm" id="editAllFramesBtn" style="display:none" onclick="editApplyToAllFrames()" title="表示中のコマで行った消しゴム・ペンの修正を、他の全コマにも適用します">⧉ 全コマへ反映</button>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
         <span style="font-size:12px;font-weight:700;color:#555">🔍 表示ズーム（見た目だけ・画像は変わりません）:</span>
@@ -1049,6 +1053,9 @@ let _edit = null;
 function openEdit(i) {
   const c = state.captions[i];
   if (!c || !c.image) { alert('先に画像を作成/割り当ててください'); return; }
+  // パラパラ（コマ持ち込み）ならコマ一覧を出して1コマずつ修正できるようにする
+  const isPara = !!(c.anim && c.anim.custom && Array.isArray(c.anim.frames) && c.anim.frames.length);
+  const frames = isPara ? c.anim.frames.slice() : null;
   const canvas = document.getElementById('editCanvas');
   const ctx = canvas.getContext('2d');
   const img = new Image();
@@ -1058,23 +1065,91 @@ function openEdit(i) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(img, 0, 0);
     _edit = { i, canvas, ctx, tool: 'eraser', drawing: false, panning: false, last: null, history: [], view: { z: 1, ox: 0, oy: 0 },
-      baseline: ctx.getImageData(0, 0, canvas.width, canvas.height) }; // 編集前の状態（パラパラの全コマ反映に使う）
+      frames, frameIndex: 0,
+      baseline: ctx.getImageData(0, 0, canvas.width, canvas.height) }; // 編集前の状態（全コマ反映の差分計算に使う）
     _applyView();
     setEditTool('eraser');
+    renderEditFrameStrip();
     document.getElementById('editModal').classList.add('open');
   };
-  img.src = b64src(c.image);
+  img.src = isPara ? frames[0] : b64src(c.image);
+}
+
+// パラパラ修正用：コマ一覧の描画
+function renderEditFrameStrip() {
+  const strip = document.getElementById('editFrameStrip');
+  const note = document.getElementById('editParaNote');
+  const allBtn = document.getElementById('editAllFramesBtn');
+  if (!strip) return;
+  const isPara = _edit && _edit.frames;
+  strip.style.display = isPara ? 'flex' : 'none';
+  if (note) note.style.display = isPara ? '' : 'none';
+  if (allBtn) allBtn.style.display = isPara ? '' : 'none';
+  if (!isPara) { strip.innerHTML = ''; return; }
+  strip.innerHTML = '<span style="font-size:12px;font-weight:700;color:#555;align-self:center;margin-right:2px">コマ:</span>' + _edit.frames.map((du, k) => `
+    <div onclick="switchEditFrame(${k})" title="コマ${k + 1}を修正する" style="cursor:pointer;text-align:center">
+      <div style="width:52px;height:52px;border:2px solid ${k === _edit.frameIndex ? '#06c755' : '#ddd'};border-radius:6px;overflow:hidden;background:repeating-conic-gradient(#f5f5f5 0% 25%, #fff 0% 50%) 50% / 10px 10px">
+        <img src="${du}" style="width:100%;height:100%;object-fit:contain" alt="コマ${k + 1}">
+      </div>
+      <div style="font-size:10px;color:${k === _edit.frameIndex ? '#06c755' : '#888'};font-weight:${k === _edit.frameIndex ? '700' : '400'}">${k + 1}</div>
+    </div>`).join('');
+}
+
+// パラパラ修正用：表示コマの切り替え（今のコマの編集内容は控えに保存される）
+function switchEditFrame(k) {
+  if (!_edit || !_edit.frames || k === _edit.frameIndex || k < 0 || k >= _edit.frames.length) return;
+  _edit.frames[_edit.frameIndex] = _edit.canvas.toDataURL('image/png');
+  const img = new Image();
+  img.onload = () => {
+    if (!_edit) return;
+    _edit.canvas.width = img.naturalWidth; _edit.canvas.height = img.naturalHeight;
+    _edit.ctx.clearRect(0, 0, _edit.canvas.width, _edit.canvas.height);
+    _edit.ctx.drawImage(img, 0, 0);
+    _edit.frameIndex = k;
+    _edit.history = [];     // ↩元に戻すはコマごと
+    _edit.scaleBase = null;
+    _edit.baseline = _edit.ctx.getImageData(0, 0, _edit.canvas.width, _edit.canvas.height);
+    renderEditFrameStrip();
+  };
+  img.src = _edit.frames[k];
+}
+
+// パラパラ修正用：表示中コマの消しゴム・ペンの差分を、他の全コマにも適用
+async function editApplyToAllFrames() {
+  if (!_edit || !_edit.frames) return;
+  const base = _edit.baseline;
+  const cur = _edit.ctx.getImageData(0, 0, _edit.canvas.width, _edit.canvas.height);
+  if (!base || base.width !== cur.width || base.height !== cur.height) {
+    alert('サイズが変わる編集（➕➖拡大縮小・📐自動フィット・背景差し込み）をした後は全コマ反映できません。\n消しゴム・ペンの修正だけの状態でお使いください。');
+    return;
+  }
+  const btn = document.getElementById('editAllFramesBtn');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner spinner-dark"></span>反映中…'; }
+  try {
+    const curUrl = _edit.canvas.toDataURL('image/png');
+    const otherUrls = _edit.frames.filter((_, k) => k !== _edit.frameIndex);
+    const applied = await applyEditDiffToFrames(otherUrls, base, cur);
+    let oi = 0;
+    _edit.frames = _edit.frames.map((du, k) => k === _edit.frameIndex ? curUrl : applied[oi++]);
+    _edit.baseline = cur; // 反映済みの状態を新たな基準にする
+    renderEditFrameStrip();
+    alert('✓ このコマの消しゴム・ペンの修正を、全コマに反映しました。\n（最後に「✔ 保存」を押すとアニメに書き出されます）');
+  } catch (e) {
+    alert('全コマへの反映に失敗しました：' + e.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '⧉ 全コマへ反映'; }
+  }
 }
 function closeEdit() { document.getElementById('editModal').classList.remove('open'); _edit = null; }
 function setEditTool(t) {
   if (_edit) _edit.tool = t;
-  const map = { eraser: 'editEraserBtn', pen: 'editPenBtn', hand: 'editHandBtn' };
+  const map = { eraser: 'editEraserBtn', pen: 'editPenBtn', picker: 'editPickerBtn', hand: 'editHandBtn' };
   for (const k in map) {
     const b = document.getElementById(map[k]);
     if (b) { b.classList.toggle('btn-primary', t === k); b.classList.toggle('btn-secondary', t !== k); }
   }
   const cv = document.getElementById('editCanvas');
-  if (cv) cv.style.cursor = (t === 'hand') ? 'grab' : 'crosshair';
+  if (cv) cv.style.cursor = (t === 'hand') ? 'grab' : (t === 'picker' ? 'copy' : 'crosshair');
 }
 
 // ===== 表示ズーム（画像データは一切変えない・CSS変形のみ）=====
@@ -1117,6 +1192,22 @@ function _editStroke(a, b) {
 }
 function editDown(e) {
   if (!_edit) return;
+  if (_edit.tool === 'picker') {
+    // 💧スポイト：タップした場所の色を拾い、ペンに切り替えてすぐ塗れるように
+    const p = _editXY(e);
+    const px = Math.min(_edit.canvas.width - 1, Math.max(0, Math.round(p.x)));
+    const py = Math.min(_edit.canvas.height - 1, Math.max(0, Math.round(p.y)));
+    const c = _edit.ctx.getImageData(px, py, 1, 1).data;
+    if (c[3] < 10) {
+      alert('そこは透明な部分です。色のある場所をタップしてください。');
+    } else {
+      const hex = '#' + [c[0], c[1], c[2]].map(v => v.toString(16).padStart(2, '0')).join('');
+      document.getElementById('editColor').value = hex;
+      setEditTool('pen');
+    }
+    e.preventDefault();
+    return;
+  }
   const t = e.touches && e.touches[0];
   const cx = t ? t.clientX : e.clientX, cy = t ? t.clientY : e.clientY;
   if (_edit.tool === 'hand') {
@@ -1159,34 +1250,22 @@ async function applyEdit() {
   if (!_edit) return;
   const ei = _edit.i;
   const c = state.captions[ei];
-  const cv = _edit.canvas, ctx = _edit.ctx;
-  const editedB64 = cv.toDataURL('image/png').split(',')[1];
-  c.image = editedB64;
-  c.status = 'done';
+  const cv = _edit.canvas;
 
-  // パラパラ（コマ持ち込み）アニメ：消しゴム/ペンの編集を「全コマ」に反映してAPNGを作り直す。
-  // これをしないと、編集は1コマ目(静止画)にしか効かず、動きの2コマ目以降に反映されない。
-  if (c.anim && c.anim.custom && Array.isArray(c.anim.frames) && c.anim.frames.length) {
+  // パラパラ（コマ持ち込み）：表示中のコマを確定し、編集後の全コマからAPNGを作り直す。
+  // コマごとの修正はコマ一覧(switchEditFrame)で選んで行う。全コマ一括は「⧉ 全コマへ反映」。
+  if (_edit.frames) {
+    _edit.frames[_edit.frameIndex] = cv.toDataURL('image/png');
     const btn = document.getElementById('editApplyBtn');
-    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>全コマに反映中…'; }
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>アニメ作成中…'; }
     try {
-      const base = _edit.baseline;
-      const cur = ctx.getImageData(0, 0, cv.width, cv.height);
-      let newFrames;
-      if (base && base.width === cur.width && base.height === cur.height) {
-        // 消しゴム/ペンのみ（サイズ不変）→ 差分マスクを全コマへ適用
-        newFrames = await applyEditDiffToFrames(c.anim.frames, base, cur);
-      } else {
-        // 拡大・背景差し込み等でサイズが変わった編集 → 1コマ目だけ差し替え
-        newFrames = c.anim.frames.slice();
-        newFrames[0] = b64src(editedB64);
-      }
       const list = [];
-      for (const du of newFrames) list.push({ img: await loadImage(du) });
+      for (const du of _edit.frames) list.push({ img: await loadImage(du) });
       const r = await buildFramesApng(list, c.anim.seconds);
-      c.anim.frames = newFrames;
+      c.anim.frames = _edit.frames.slice();
       c.anim.apng = r.b64;
-      c.image = newFrames[0].split(',')[1]; // 静止画(tab等)も編集後の1コマ目に更新
+      c.image = _edit.frames[0].split(',')[1]; // 静止画(tab等)は1コマ目
+      c.status = 'done';
     } catch (e) {
       console.warn('パラパラの編集反映に失敗:', e);
       alert('編集をアニメに反映できませんでした：\n' + e.message);
@@ -1199,6 +1278,8 @@ async function applyEdit() {
     return;
   }
 
+  c.image = cv.toDataURL('image/png').split(',')[1];
+  c.status = 'done';
   save();
   renderStamps();
   closeEdit();
