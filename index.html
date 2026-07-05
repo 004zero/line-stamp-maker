@@ -236,7 +236,7 @@
 </head>
 <body>
   <div class="header">
-    <h1>🟢 LINEスタンプメーカー</h1>
+    <h1>🟢 LINEスタンプメーカー <span style="font-size:10px;font-weight:400;opacity:0.75">v2026.07.06b</span></h1>
     <div class="header-actions">
       <span class="api-status" id="apiStatus">API未設定</span>
       <button class="btn btn-secondary btn-sm" onclick="openSettings()">⚙ 設定</button>
@@ -1769,24 +1769,85 @@ function whiteToTransparent(dataUrl, tol, removePockets) {
         if (!cnt) { resolve(dataUrl); return; } // 四隅が透明＝すでに透過済み
         br /= cnt; bg /= cnt; bb /= cnt;
         const t2 = tol * tol;
-        const visited = new Uint8Array(w * h);
-        const stack = [];
-        const consider = (x, y) => {
-          if (x < 0 || y < 0 || x >= w || y >= h) return;
-          const p = y * w + x;
-          if (visited[p]) return;
-          visited[p] = 1;
+        const N = w * h;
+        // bgLike: 背景色に近い、または既に透明（＝塗りつぶしの通り道になり得る）
+        const bgLike = new Uint8Array(N);
+        for (let p = 0; p < N; p++) {
           const i = p * 4;
-          if (d[i + 3] < 8) { stack.push(p); return; } // すでに透明も通り道にする
+          if (d[i + 3] < 8) { bgLike[p] = 1; continue; }
           const dr = d[i] - br, dg = d[i + 1] - bg, db = d[i + 2] - bb;
-          if (dr * dr + dg * dg + db * db <= t2) { d[i + 3] = 0; stack.push(p); }
-        };
-        for (let x = 0; x < w; x++) { consider(x, 0); consider(x, h - 1); }
-        for (let y = 0; y < h; y++) { consider(0, y); consider(w - 1, y); }
-        while (stack.length) {
-          const p = stack.pop(); const x = p % w, y = (p / w) | 0;
-          consider(x + 1, y); consider(x - 1, y); consider(x, y + 1); consider(x, y - 1);
+          if (dr * dr + dg * dg + db * db <= t2) bgLike[p] = 1;
         }
+        // 手描き線画の輪郭にある途切れ（隙間）から中に漏れて顔・体まで消さないよう、
+        // 通り道を輪郭からRpx離して進ませる（収縮）。隙間≦2Rpxは通り抜けられない。
+        // Rを変えて「消える量」を比べ、大きく減るなら＝漏れていた証拠なので広いRを自動採用する。
+        const clearMaskForR = (R) => {
+          const erodedH = new Uint8Array(N);
+          for (let y = 0; y < h; y++) {
+            const row = y * w;
+            for (let x = 0; x < w; x++) {
+              let v = 1;
+              for (let k = -R; k <= R; k++) { const xx = x + k; if (xx < 0 || xx >= w) continue; if (!bgLike[row + xx]) { v = 0; break; } }
+              erodedH[row + x] = v;
+            }
+          }
+          const eroded = new Uint8Array(N);
+          for (let x = 0; x < w; x++) {
+            for (let y = 0; y < h; y++) {
+              let v = 1;
+              for (let k = -R; k <= R; k++) { const yy = y + k; if (yy < 0 || yy >= h) continue; if (!erodedH[yy * w + x]) { v = 0; break; } }
+              eroded[y * w + x] = v;
+            }
+          }
+          // 外周から収縮済みの通り道だけを塗りつぶす
+          const reached = new Uint8Array(N);
+          const stack = [];
+          const push = (x, y) => {
+            if (x < 0 || y < 0 || x >= w || y >= h) return;
+            const p = y * w + x;
+            if (reached[p] || !eroded[p]) return;
+            reached[p] = 1; stack.push(p);
+          };
+          for (let x = 0; x < w; x++) { push(x, 0); push(x, h - 1); }
+          for (let y = 0; y < h; y++) { push(0, y); push(w - 1, y); }
+          while (stack.length) {
+            const p = stack.pop(); const x = p % w, y = (p / w) | 0;
+            push(x + 1, y); push(x - 1, y); push(x, y + 1); push(x, y - 1);
+          }
+          // 到達領域をRpx戻し（膨張）、輪郭ぎわに残った背景も対象にする。消すのは背景色のところだけ
+          const dilH = new Uint8Array(N);
+          for (let y = 0; y < h; y++) {
+            const row = y * w;
+            for (let x = 0; x < w; x++) {
+              let v = 0;
+              for (let k = -R; k <= R; k++) { const xx = x + k; if (xx < 0 || xx >= w) continue; if (reached[row + xx]) { v = 1; break; } }
+              dilH[row + x] = v;
+            }
+          }
+          const mask = new Uint8Array(N);
+          let count = 0;
+          for (let x = 0; x < w; x++) {
+            for (let y = 0; y < h; y++) {
+              let v = 0;
+              for (let k = -R; k <= R; k++) { const yy = y + k; if (yy < 0 || yy >= h) continue; if (dilH[yy * w + x]) { v = 1; break; } }
+              const p = y * w + x;
+              if (v && bgLike[p] && d[p * 4 + 3] >= 8) { mask[p] = 1; count++; }
+            }
+          }
+          return { mask, count };
+        };
+        const R0 = Math.max(2, Math.round(Math.min(w, h) / 300));
+        let chosen = clearMaskForR(R0);
+        // 消える量がそれなりにある時だけ漏れ検査（すでにほぼ透明な画像などはスキップ）
+        if (chosen.count > N * 0.08) {
+          const big = clearMaskForR(R0 * 6);
+          if (chosen.count - big.count > N * 0.03) {
+            // 漏れあり：中間のRで塞がるならそちらを採用（正当な狭い溝を残しすぎないため）
+            const mid = clearMaskForR(R0 * 3);
+            chosen = (mid.count - big.count <= N * 0.01) ? mid : big;
+          }
+        }
+        for (let p = 0; p < N; p++) if (chosen.mask[p]) d[p * 4 + 3] = 0;
         // 第2パス（オプション）：文字の輪の中など「囲まれて取り残された背景色の小さなポケット」を除去。
         // ※キャラの白目・歯・ハイライトも消してしまうことがあるため removePockets=true のときだけ実行
         if (removePockets) {
