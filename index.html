@@ -1519,7 +1519,7 @@ function renderCaptions() {
       <td data-label="セリフ"><input type="text" value="${escAttr(c.text)}" oninput="updateCaption(${i},'text',this.value)"></td>
       <td data-label="表情・感情"><input type="text" value="${escAttr(c.emotion)}" oninput="updateCaption(${i},'emotion',this.value)"></td>
       <td data-label="構図メモ"><textarea oninput="updateCaption(${i},'composition',this.value)">${escHtml(c.composition)}</textarea></td>
-      <td class="col-act"><button class="btn btn-secondary btn-icon" onclick="regenerateCaption(${i})" title="この行だけ作り直す">🔄 作り直す</button></td>
+      <td class="col-act" style="white-space:nowrap"><button class="btn btn-secondary btn-icon" onclick="regenerateCaption(${i})" title="この行だけ作り直す">🔄 作り直す</button> <button class="btn btn-danger btn-icon" onclick="deleteStamp(${i})" title="この行（スタンプ）を削除">🗑</button></td>
     </tr>`;
   });
   html += `</tbody></table>`;
@@ -1533,6 +1533,19 @@ function escAttr(s) { return (s ?? '').toString().replace(/"/g, '&quot;').replac
 function updateCaption(i, field, value) {
   state.captions[i][field] = value;
   save();
+}
+
+// スタンプを1個だけ削除（セリフ表・カード両方の🗑から）
+function deleteStamp(i) {
+  const c = state.captions[i];
+  if (!c) return;
+  const label = `${String(i + 1).padStart(2, '0')}. ${(c.text || '（セリフなし）').slice(0, 12)}`;
+  if ((c.image || c.anim) && !confirm(`スタンプ ${label} を削除しますか？\n（生成済みの画像・アニメも消えます。元に戻せません）`)) return;
+  state.captions.splice(i, 1);
+  selectedStamps.clear(); // 番号がずれるため一括選択は解除
+  save();
+  renderCaptions();
+  renderStamps();
 }
 
 async function regenerateCaption(i) {
@@ -2094,6 +2107,7 @@ function renderStamps() {
         ${c.image ? `<button class="btn btn-secondary btn-sm" onclick="openAnim(${i})" title="アニメ化（動くスタンプにする）">🎞</button>` : ''}
         ${c.image ? `<button class="btn btn-secondary btn-sm" onclick="openEdit(${i})" title="修正（消しゴム・ペン）">🖊</button>` : ''}
         ${c.image ? `<button class="btn btn-secondary btn-sm" onclick="downloadOne(${i})" title="ダウンロード">⬇</button>` : ''}
+        <button class="btn btn-danger btn-sm" onclick="deleteStamp(${i})" title="このスタンプを削除">🗑</button>
       </div>
     </div>`;
   });
