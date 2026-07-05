@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>LINEスタンプメーカー 🟢</title>
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/pako@1.0.11/dist/pako.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/upng-js@2.1.0/UPNG.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: 'Segoe UI', 'Hiragino Sans', 'Meiryo', sans-serif; background: #f0f4f8; color: #333; min-height: 100vh; }
@@ -143,6 +145,13 @@
     .history-card .history-meta { font-size: 10px; color: #888; }
     .history-card .history-actions { display: flex; gap: 4px; }
     .history-card .history-actions .btn { flex: 1; padding: 5px 4px; font-size: 10px; min-height: 0; }
+
+    /* アニメ化モーダル */
+    .fx-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
+    .fx-pill { padding: 9px 6px; border: 1.5px solid #ddd; border-radius: 7px; text-align: center; cursor: pointer; font-size: 12px; font-weight: 600; background: white; user-select: none; }
+    .fx-pill:hover { border-color: #06c755; }
+    .fx-pill.active { background: #06c755; border-color: #06c755; color: white; }
+    #animCanvas { background: repeating-conic-gradient(#f0f0f0 0% 25%, #fff 0% 50%) 50% / 16px 16px; border: 1px solid #ddd; border-radius: 8px; max-width: 100%; height: auto; }
 
     /* ============ Mobile (≤768px) ============ */
     @media (max-width: 768px) {
@@ -365,6 +374,7 @@
         <div class="info" id="genInfo"></div>
         <button class="btn btn-secondary btn-sm" onclick="exportToFolder()" id="folderBtn" disabled style="display:none">📂 フォルダに保存</button>
         <button class="btn btn-secondary btn-sm" onclick="downloadZip()" id="zipBtn" disabled>📦 ZIPでまとめてDL</button>
+        <button class="btn btn-secondary btn-sm" onclick="downloadAnimZip()" id="animZipBtn" disabled title="🎞で動きを付けたスタンプを、LINEアニメーションスタンプ用のZIP（APNG）にまとめます">🎞 アニメスタンプZIP</button>
         <label style="font-size:12px;color:#555;display:inline-flex;align-items:center;gap:5px;cursor:pointer;border:1.5px solid #ddd;border-radius:7px;padding:7px 10px" title="オフにするとAPI課金される生成を止めます（切り抜きの直接使用はオフでも動きます）">
           <input type="checkbox" id="apiEnabledChk" checked onchange="state.apiEnabled=this.checked; save();">
           🤖 AI生成(API)を使う
@@ -389,6 +399,27 @@
         </div>
         <div id="lineImagesPreview" style="display:flex;gap:18px;margin-top:12px;flex-wrap:wrap"></div>
       </div>
+    </div>
+
+    <!-- 手持ち画像でアニメスタンプ -->
+    <div class="card">
+      <div class="card-title"><span class="num">5</span>手持ち画像でアニメスタンプ（AI不要・無料）</div>
+      <div style="font-size:12px;color:#666;margin-bottom:12px;line-height:1.7">
+        自分で用意した画像から動くスタンプを作れます（API課金なし）。<br>
+        <strong>📷 画像に動きを付ける</strong>＝1枚の絵に「ぷるぷる」「ぴょんぴょん」などの動きを自動で付けます（複数まとめてアップOK）。<br>
+        <strong>🎬 コマ画像でパラパラアニメ</strong>＝自分で描いた複数のコマ画像を、並べた順に再生するアニメにします（2〜20枚）。
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+        <input type="file" id="ownImgFile" accept="image/*" multiple style="display:none" onchange="onOwnImages(event)">
+        <button class="btn btn-primary" id="ownImgBtn" onclick="document.getElementById('ownImgFile').click()">📷 画像に動きを付ける</button>
+        <input type="file" id="frameImgFile" accept="image/*" multiple style="display:none" onchange="onFrameImages(event)">
+        <button class="btn btn-primary" id="frameImgBtn" onclick="document.getElementById('frameImgFile').click()">🎬 コマ画像でパラパラアニメ</button>
+        <label style="font-size:12px;color:#555;display:inline-flex;align-items:center;gap:5px;cursor:pointer" title="外周の白背景だけを透明にします（LINE用・推奨）">
+          <input type="checkbox" id="ownBgRemoveChk" checked>
+          白い背景を透明にする
+        </label>
+      </div>
+      <div style="font-size:11px;color:#888;margin-top:8px">アップした画像は「④スタンプ画像」の一覧に追加されます。🎞ボタンで動きの変更、「🎞 アニメスタンプZIP」でLINE申請用にまとめられます。</div>
     </div>
   </div>
 
@@ -419,7 +450,7 @@
       <h2>✂ シートから1コマを切り抜く</h2>
       <div class="note" style="margin-top:0;margin-bottom:12px">使いたい1コマを<strong>ドラッグで囲んで</strong>、下で使い道を選び「切り抜いて使う」を押してください。<strong>元のシートは消えません</strong>ので、続けて別のコマも切り抜けます。</div>
       <div style="text-align:center;background:#f4f4f4;border-radius:8px;padding:10px;">
-        <div id="cropStage" onmousedown="cropPointerDown(event)" onmousemove="cropPointerMove(event)" onmouseup="cropPointerUp(event)" ontouchstart="cropPointerDown(event)" ontouchmove="cropPointerMove(event)" ontouchend="cropPointerUp(event)">
+        <div id="cropStage" onmousedown="cropPointerDown(event)" onmousemove="cropPointerMove(event)" onmouseup="cropPointerUp(event)" ontouchstart="cropPointerDown(event)" ontouchmove="cropPointerMove(event)" ontouchend="cropPointerUp(event)" ontouchcancel="cropPointerUp(event)">
           <img id="cropImg" alt="crop source">
           <div id="cropSel"></div>
         </div>
@@ -469,7 +500,7 @@
       <div style="text-align:center;background:repeating-conic-gradient(#f0f0f0 0% 25%, #fff 0% 50%) 50% / 16px 16px;border:1px solid #ddd;border-radius:8px;padding:8px;overflow:hidden">
         <canvas id="editCanvas" style="max-width:100%;max-height:55vh;touch-action:none;cursor:crosshair"
           onmousedown="editDown(event)" onmousemove="editMove(event)" onmouseup="editUp(event)"
-          ontouchstart="editDown(event)" ontouchmove="editMove(event)" ontouchend="editUp(event)"></canvas>
+          ontouchstart="editDown(event)" ontouchmove="editMove(event)" ontouchend="editUp(event)" ontouchcancel="editUp(event)"></canvas>
       </div>
       <div class="modal-actions">
         <button class="btn btn-secondary" onclick="closeEdit()">キャンセル</button>
@@ -486,6 +517,67 @@
       <div id="clipPickerGrid" style="display:flex;flex-wrap:wrap;gap:10px;max-height:50vh;overflow-y:auto"></div>
       <div class="modal-actions">
         <button class="btn btn-secondary" onclick="closeClipPicker()">閉じる</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- アニメ化モーダル -->
+  <div class="modal-bg" id="animModal">
+    <div class="modal" style="max-width:680px">
+      <h2>🎞 動くスタンプ（アニメーション）にする</h2>
+      <div class="note" style="margin-top:0;margin-bottom:12px">動きを選ぶと左でプレビューが再生されます。保存すると<strong>LINEアニメーションスタンプ規格（APNG・320×270px・合計4秒以内・300KB以下）</strong>に自動で変換されます。</div>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start">
+        <div style="text-align:center;flex:0 0 auto;margin:0 auto">
+          <canvas id="animCanvas" width="320" height="270"></canvas>
+          <div id="animSizeInfo" style="font-size:11px;color:#888;margin-top:4px">保存時に自動で300KB以下へ圧縮します</div>
+        </div>
+        <div style="flex:1;min-width:220px">
+          <label class="form-label">動きを選ぶ</label>
+          <div class="fx-grid" id="fxGrid"></div>
+          <label class="form-label" style="margin-top:12px">速さ（1回の再生時間）</label>
+          <select id="animSeconds" class="form-select" onchange="setAnimSeconds(this.value)">
+            <option value="1">ふつう（1秒 × 4ループ）</option>
+            <option value="2">ゆっくり（2秒 × 2ループ）</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-actions" style="flex-wrap:wrap">
+        <button class="btn btn-danger" id="animRemoveBtn" onclick="removeAnim()" style="display:none">🗑 アニメを解除</button>
+        <button class="btn btn-secondary" onclick="downloadAnimOne()" id="animDlBtn" title="この1個だけAPNGファイルとして保存">⬇ APNG保存</button>
+        <button class="btn btn-secondary" onclick="closeAnim()">キャンセル</button>
+        <button class="btn btn-secondary" onclick="applyAnimAll()" id="animAllBtn" title="完成済みの全スタンプにこの動きを付ける">✨ 全部に適用</button>
+        <button class="btn btn-primary" onclick="applyAnim()" id="animApplyBtn">✔ この動きにする</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- パラパラアニメモーダル -->
+  <div class="modal-bg" id="framesModal">
+    <div class="modal" style="max-width:720px">
+      <h2>🎬 コマ画像でパラパラアニメ</h2>
+      <div class="note" style="margin-top:0;margin-bottom:12px">コマは<strong>並んでいる順に再生</strong>されます（◀▶で入れ替え・✕で削除）。LINE規格は5〜20コマ・再生1〜4秒。<strong>5コマ未満のときは自動で繰り返して5コマ以上</strong>にして書き出します。</div>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start">
+        <div style="text-align:center;margin:0 auto">
+          <canvas id="framesCanvas" width="320" height="270" style="background:repeating-conic-gradient(#f0f0f0 0% 25%, #fff 0% 50%) 50% / 16px 16px;border:1px solid #ddd;border-radius:8px;max-width:100%;height:auto"></canvas>
+          <div id="framesInfo" style="font-size:11px;color:#888;margin-top:4px"></div>
+        </div>
+        <div style="flex:1;min-width:230px">
+          <label class="form-label">コマ（再生順）</label>
+          <div id="framesStrip" style="display:flex;flex-wrap:wrap;gap:8px;max-height:220px;overflow-y:auto"></div>
+          <button class="btn btn-secondary btn-sm" style="margin-top:8px" onclick="document.getElementById('frameImgFile').click()">＋ コマを追加</button>
+          <label class="form-label" style="margin-top:12px">速さ（1回の再生時間）</label>
+          <select id="framesSeconds" class="form-select" onchange="setFramesSeconds(this.value)">
+            <option value="1">1秒（4ループ）</option>
+            <option value="2">2秒（2ループ）</option>
+            <option value="3">3秒（1ループ）</option>
+            <option value="4">4秒（1ループ）</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-actions" style="flex-wrap:wrap">
+        <button class="btn btn-secondary" onclick="downloadFramesApng()" id="framesDlBtn" title="このアニメだけAPNGファイルとして保存">⬇ APNG保存</button>
+        <button class="btn btn-secondary" onclick="closeFrames()">キャンセル</button>
+        <button class="btn btn-primary" onclick="applyFrames()" id="framesApplyBtn">✔ スタンプ一覧に追加</button>
       </div>
     </div>
   </div>
@@ -1057,19 +1149,22 @@ async function editRemoveWhite() {
   if (!_edit) return;
   _editSaveHistory();
   _edit.scaleBase = null;
-  const url = await whiteToTransparent(_edit.canvas.toDataURL('image/png'));
+  const url = await whiteToTransparent(_edit.canvas.toDataURL('image/png'), null, true); // 手動時のみポケット除去も実行（↩で戻せる）
   const img = new Image();
   img.onload = () => { _edit.ctx.clearRect(0, 0, _edit.canvas.width, _edit.canvas.height); _edit.ctx.drawImage(img, 0, 0); };
   img.src = url;
 }
 function applyEdit() {
   if (!_edit) return;
+  const ei = _edit.i;
   const b64 = _edit.canvas.toDataURL('image/png').split(',')[1];
-  state.captions[_edit.i].image = b64;
-  state.captions[_edit.i].status = 'done';
+  state.captions[ei].image = b64;
+  state.captions[ei].status = 'done';
   save();
   renderStamps();
   closeEdit();
+  // アニメ設定済みなら、修正後の画像で動きを作り直す
+  if (state.captions[ei].anim) refreshAnim(ei).then(() => { save(); renderStamps(); });
 }
 
 // 修正モーダル：1枚だけ自動フィット（キャラ検出→標準サイズ・中央へ）
@@ -1552,7 +1647,10 @@ Square 1:1 composition. NO copyrighted characters or brand logos. NO violence or
 // フラッドフィルなので、キャラの白い服・目の白など内側の白は消えない。
 // 外周につながった背景を透明化。四隅の実際の色をサンプルするので、白だけでなく
 // うっすら灰色・クリーム色などの背景も消える。内側の白（服・目）は連結してないので残る。
-function whiteToTransparent(dataUrl, tol) {
+// removePockets=true のときだけ「囲まれた背景色の小さなポケット」も除去する（積極モード）。
+// キャラの白目・歯・ハイライト等を誤って消す恐れがあるため、自動処理では使わず、
+// 手動の「白を透明に」ボタン（↩元に戻すあり）でのみ有効にする。
+function whiteToTransparent(dataUrl, tol, removePockets) {
   tol = tol || 50; // 背景色との許容色距離
   return new Promise((resolve) => {
     const img = new Image();
@@ -1591,29 +1689,31 @@ function whiteToTransparent(dataUrl, tol) {
           const p = stack.pop(); const x = p % w, y = (p / w) | 0;
           consider(x + 1, y); consider(x - 1, y); consider(x, y + 1); consider(x, y - 1);
         }
-        // 第2パス：文字の輪の中など「囲まれて取り残された背景色の小さなポケット」を除去。
-        // 大きな塊（白い服・肌など）は誤って消さないよう、画像の0.6%未満の塊だけ対象。
-        const maxPocket = Math.max(64, Math.floor(w * h * 0.006));
-        const seen = new Uint8Array(w * h);
-        const isBg = (p) => {
-          const i = p * 4;
-          if (d[i + 3] < 8) return false;
-          const dr = d[i] - br, dg = d[i + 1] - bg, db = d[i + 2] - bb;
-          return dr * dr + dg * dg + db * db <= t2;
-        };
-        for (let p0 = 0; p0 < w * h; p0++) {
-          if (seen[p0]) continue;
-          if (!isBg(p0)) { seen[p0] = 1; continue; }
-          // 背景色の連結成分を最後まで集める（大きさで消す/残すを判定するため）
-          const comp = [p0]; seen[p0] = 1; let qi = 0;
-          while (qi < comp.length) {
-            const q = comp[qi++]; const x = q % w, y = (q / w) | 0;
-            if (x < w - 1 && !seen[q + 1] && isBg(q + 1)) { seen[q + 1] = 1; comp.push(q + 1); }
-            if (x > 0     && !seen[q - 1] && isBg(q - 1)) { seen[q - 1] = 1; comp.push(q - 1); }
-            if (y < h - 1 && !seen[q + w] && isBg(q + w)) { seen[q + w] = 1; comp.push(q + w); }
-            if (y > 0     && !seen[q - w] && isBg(q - w)) { seen[q - w] = 1; comp.push(q - w); }
+        // 第2パス（オプション）：文字の輪の中など「囲まれて取り残された背景色の小さなポケット」を除去。
+        // ※キャラの白目・歯・ハイライトも消してしまうことがあるため removePockets=true のときだけ実行
+        if (removePockets) {
+          const maxPocket = Math.max(64, Math.floor(w * h * 0.006));
+          const seen = new Uint8Array(w * h);
+          const isBg = (p) => {
+            const i = p * 4;
+            if (d[i + 3] < 8) return false;
+            const dr = d[i] - br, dg = d[i + 1] - bg, db = d[i + 2] - bb;
+            return dr * dr + dg * dg + db * db <= t2;
+          };
+          for (let p0 = 0; p0 < w * h; p0++) {
+            if (seen[p0]) continue;
+            if (!isBg(p0)) { seen[p0] = 1; continue; }
+            // 背景色の連結成分を最後まで集める（大きさで消す/残すを判定するため）
+            const comp = [p0]; seen[p0] = 1; let qi = 0;
+            while (qi < comp.length) {
+              const q = comp[qi++]; const x = q % w, y = (q / w) | 0;
+              if (x < w - 1 && !seen[q + 1] && isBg(q + 1)) { seen[q + 1] = 1; comp.push(q + 1); }
+              if (x > 0     && !seen[q - 1] && isBg(q - 1)) { seen[q - 1] = 1; comp.push(q - 1); }
+              if (y < h - 1 && !seen[q + w] && isBg(q + w)) { seen[q + w] = 1; comp.push(q + w); }
+              if (y > 0     && !seen[q - w] && isBg(q - w)) { seen[q - w] = 1; comp.push(q - w); }
+            }
+            if (comp.length <= maxPocket) { for (const q of comp) d[q * 4 + 3] = 0; }
           }
-          if (comp.length <= maxPocket) { for (const q of comp) d[q * 4 + 3] = 0; }
         }
         ctx.putImageData(id, 0, 0);
         resolve(cv.toDataURL('image/png'));
@@ -1684,13 +1784,13 @@ function _bulkBusy(on, label) {
 async function bulkAutoFit() {
   const t = _bulkTargets(); if (!t.length) { alert('完成した画像がありません'); return; }
   _bulkBusy(true);
-  for (const i of t) state.captions[i].image = await autoFitImage(b64src(state.captions[i].image));
+  for (const i of t) { state.captions[i].image = await autoFitImage(b64src(state.captions[i].image)); await refreshAnim(i); }
   save(); _bulkBusy(false); renderStamps();
 }
 async function bulkRemoveBg() {
   const t = _bulkTargets(); if (!t.length) { alert('完成した画像がありません'); return; }
   _bulkBusy(true);
-  for (const i of t) { const u = await whiteToTransparent(b64src(state.captions[i].image)); state.captions[i].image = u.split(',')[1]; }
+  for (const i of t) { const u = await whiteToTransparent(b64src(state.captions[i].image)); state.captions[i].image = u.split(',')[1]; await refreshAnim(i); }
   save(); _bulkBusy(false); renderStamps();
 }
 async function bulkFix() {
@@ -1699,6 +1799,7 @@ async function bulkFix() {
   for (const i of t) {
     const u = await whiteToTransparent(b64src(state.captions[i].image)); // 背景透明
     state.captions[i].image = await autoFitImage(u);                     // 大きさ揃え
+    await refreshAnim(i);
   }
   save(); _bulkBusy(false); renderStamps();
 }
@@ -1717,6 +1818,7 @@ async function generateOneImage(i) {
       if (state.bgRemove) dataUrl = await whiteToTransparent(dataUrl);
       c.image = dataUrl.split(',')[1];
       c.status = 'done';
+      await refreshAnim(i); // アニメ設定済みなら新しい画像で作り直す
       save();
     } catch (e) {
       c.status = 'err';
@@ -1730,6 +1832,14 @@ async function generateOneImage(i) {
   if (state.apiEnabled === false) {
     c.status = 'err';
     c.error = '🤖AI生成(API)がオフのためスキップしました。スイッチをONにするか、切り抜きを割り当てて忠実度「そのまま同じ」をご利用ください（そちらは無料）。';
+    renderStamps();
+    return;
+  }
+
+  // 別端末（スマホ等）はAPIキーが保存されていないことが多い。カード上に理由を表示する
+  if (!state.apiKey) {
+    c.status = 'err';
+    c.error = 'APIキーが未設定のためAI生成できません。右上の「⚙設定」からOpenAI APIキーを入力してください。（✂切り抜きを割り当てて「写真への忠実度＝そのまま同じ」にすると、AIを使わず無料で画像化できます）';
     renderStamps();
     return;
   }
@@ -1807,6 +1917,7 @@ async function generateOneImage(i) {
       throw new Error('画像データ(b64_json/url)が見つかりません');
     }
     c.status = 'done';
+    await refreshAnim(i); // アニメ設定済みなら新しい画像で作り直す
     save();
   } catch (e) {
     console.error(`[DALL-E #${i + 1}] failed:`, e);
@@ -1824,8 +1935,11 @@ function stopGeneration() {
 }
 
 async function generateAllImages() {
-  if (!state.apiKey) { alert('APIキー未設定'); openSettings(); return; }
   if (!state.captions.length) return;
+  // APIキーが無くても「そのまま同じ」＋切り抜き割り当て済みのスタンプは無料で生成できる。
+  // キーを必須にするのは、無料で作れるスタンプが1個も無いときだけ（スマホ等の別端末はキー未保存が多い）。
+  const isFree = (c) => state.refStrength === 'same' && c.refImage && c.refImage.dataUrl;
+  if (!state.apiKey && !state.captions.some(isFree)) { alert('APIキー未設定'); openSettings(); return; }
   genCancel = false;
   const btn = document.getElementById('genAllBtn');
   const stopBtn = document.getElementById('stopGenBtn');
@@ -1895,6 +2009,8 @@ function updateGenInfo() {
 function refreshZipBtn() {
   const anyDone = state.captions.some(c => c.image);
   document.getElementById('zipBtn').disabled = !anyDone;
+  const ab = document.getElementById('animZipBtn');
+  if (ab) ab.disabled = !state.captions.some(c => c.anim && c.anim.apng);
   refreshFolderBtn();
   refreshSaveBtn();
 }
@@ -1923,12 +2039,14 @@ function renderStamps() {
       <span style="font-size:11px;color:#888">※チェックを付けたスタンプだけに適用（未選択なら全部）</span>
     </div>`;
   }
-  html += `<div style="font-size:11px;color:#888;margin-bottom:10px">💡 上の<strong>切り抜きトレイ</strong>や<strong>PCの画像</strong>を各スタンプへ<strong>ドラッグ＆ドロップ</strong>すると、そのスタンプ専用の参考画像になります（🖼ボタンからの指定もOK）。</div><div class="stamps-grid">`;
+  html += `<div style="font-size:11px;color:#888;margin-bottom:10px">💡 上の<strong>切り抜きトレイ</strong>や<strong>PCの画像</strong>を各スタンプへ<strong>ドラッグ＆ドロップ</strong>すると、そのスタンプ専用の参考画像になります（🖼ボタンからの指定もOK）。完成した画像は<strong>🎞ボタンで動くスタンプ（アニメーション）</strong>にできます。</div><div class="stamps-grid">`;
   state.captions.forEach((c, i) => {
     const num = String(i + 1).padStart(2, '0');
     let imgHtml = '';
     if (c.status === 'done' && c.image) {
-      imgHtml = `<img src="data:image/png;base64,${c.image}" alt="${escAttr(c.text)}">`;
+      // アニメ設定済みならAPNGを表示（主要ブラウザはimgタグでそのまま動く）
+      const src = (c.anim && c.anim.apng) ? c.anim.apng : c.image;
+      imgHtml = `<img src="data:image/png;base64,${src}" alt="${escAttr(c.text)}">`;
     } else if (c.status === 'gen') {
       imgHtml = `<div style="display:flex;flex-direction:column;align-items:center;gap:6px;"><span class="spinner spinner-dark"></span><span style="font-size:11px;color:#888">生成中…</span></div>`;
     } else if (c.status === 'err') {
@@ -1942,6 +2060,7 @@ function renderStamps() {
       c.status === 'err'  ? `<span class="stamp-status err">失敗</span>` :
                             `<span class="stamp-status">未生成</span>`;
     const customOpen = c.customOpen ? 'open' : '';
+    const animBadge = c.anim ? `<div style="font-size:10px;color:#7b3fbf;font-weight:700;text-align:center">🎞 ${escHtml((ANIM_EFFECTS[c.anim.effect] || {}).label || c.anim.label || 'アニメ')}（動くスタンプ）</div>` : '';
     const styleOpts = Object.keys(STYLE_OPTIONS).map(s => `<option value="${escAttr(s)}" ${c.customStyle === s ? 'selected' : ''}>${escHtml(s)}</option>`).join('');
     const styleBadge = c.customStyle ? `<div style="font-size:10px;color:#06c755;text-align:center;margin-top:2px">🎨 ${escHtml(c.customStyle)}</div>` : '';
     const refIndicator = c.refImage
@@ -1956,6 +2075,7 @@ function renderStamps() {
       </div>
       <input type="text" value="${escAttr(c.emotion)}" oninput="updateCaption(${i},'emotion',this.value)" title="表情・感情" placeholder="表情・感情" style="font-size:11px;color:#888;padding:3px 6px;border:1px solid #f4f4f4;border-radius:5px;text-align:center;font-family:inherit">
       ${statusLabel}
+      ${animBadge}
       ${refIndicator}
       ${styleBadge}
       <div class="stamp-custom ${customOpen}" id="custom-${i}">
@@ -1971,6 +2091,7 @@ function renderStamps() {
         <input type="file" id="stampRefFile-${i}" accept="image/*" style="display:none" onchange="onStampRefFile(${i}, event)">
         <button class="btn btn-secondary btn-sm" onclick="document.getElementById('stampRefFile-${i}').click()" title="参考画像（このスタンプだけ）">🖼</button>
         <button class="btn btn-secondary btn-sm" onclick="openClipPicker(${i})" title="切り抜きトレイから選んで割り当て">✂</button>
+        ${c.image ? `<button class="btn btn-secondary btn-sm" onclick="openAnim(${i})" title="アニメ化（動くスタンプにする）">🎞</button>` : ''}
         ${c.image ? `<button class="btn btn-secondary btn-sm" onclick="openEdit(${i})" title="修正（消しゴム・ペン）">🖊</button>` : ''}
         ${c.image ? `<button class="btn btn-secondary btn-sm" onclick="downloadOne(${i})" title="ダウンロード">⬇</button>` : ''}
       </div>
@@ -2142,6 +2263,622 @@ function downloadLineImage(fname) {
   URL.revokeObjectURL(url);
 }
 
+// ========== アニメーションスタンプ（APNG） ==========
+// LINEアニメーションスタンプ規格：APNG / W320×H270 / 5〜20フレーム / 再生1〜4秒 / 合計4秒以内 / 300KB以下
+const ANIM_W = 320, ANIM_H = 270;
+const ANIM_MAX_BYTES = 300 * 1024;
+
+function loadImage(src) {
+  return new Promise((res, rej) => {
+    const im = new Image();
+    im.onload = () => res(im);
+    im.onerror = () => rej(new Error('画像の読み込みに失敗しました'));
+    im.src = src;
+  });
+}
+
+// キャラ（不透明部分）の範囲を調べ、アニメ描画の基準にする
+function charInfo(img) {
+  const w = img.naturalWidth, h = img.naturalHeight;
+  const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+  const ctx = cv.getContext('2d');
+  ctx.drawImage(img, 0, 0);
+  let minX = w, minY = h, maxX = -1, maxY = -1;
+  try {
+    const d = ctx.getImageData(0, 0, w, h).data;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      if (d[(y * w + x) * 4 + 3] > 8) {
+        if (x < minX) minX = x; if (x > maxX) maxX = x;
+        if (y < minY) minY = y; if (y > maxY) maxY = y;
+      }
+    }
+  } catch (e) { maxX = -1; }
+  if (maxX < 0) { minX = 0; minY = 0; maxX = w - 1; maxY = h - 1; }
+  return { img, bx: minX, by: minY, bw: maxX - minX + 1, bh: maxY - minY + 1 };
+}
+
+// 1フレーム描画：キャラをキャンバスの72%に収め、動きのぶんの余白を残す
+function drawCharFrame(ctx, info, opt) {
+  opt = opt || {};
+  const W = ctx.canvas.width, H = ctx.canvas.height;
+  const s0 = Math.min(W * 0.72 / info.bw, H * 0.72 / info.bh) * (opt.scale || 1);
+  const dw = info.bw * s0, dh = info.bh * s0;
+  const cx = W / 2 + (opt.x || 0) * W;
+  const cy = H * 0.54 + (opt.y || 0) * H;
+  ctx.save();
+  if (opt.pivotBottom) {
+    // 足元を軸に：ゆらゆら・着地のつぶれが自然になる
+    ctx.translate(cx, cy + dh / 2);
+    ctx.rotate((opt.rot || 0) * Math.PI / 180);
+    ctx.scale(opt.sx || 1, opt.sy || 1);
+    ctx.translate(0, -dh / 2);
+  } else {
+    ctx.translate(cx, cy);
+    ctx.rotate((opt.rot || 0) * Math.PI / 180);
+    ctx.scale(opt.sx || 1, opt.sy || 1);
+  }
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(info.img, info.bx, info.by, info.bw, info.bh, -dw / 2, -dh / 2, dw, dh);
+  ctx.restore();
+}
+
+function _ease(u) { return u < 0.5 ? 2 * u * u : 1 - Math.pow(-2 * u + 2, 2) / 2; }
+
+function _drawStar(ctx, x, y, r, a) {
+  ctx.save(); ctx.translate(x, y);
+  ctx.fillStyle = `rgba(255,214,64,${a.toFixed(3)})`;
+  ctx.beginPath();
+  for (let i = 0; i < 8; i++) {
+    const ang = i * Math.PI / 4, rr = (i % 2 === 0) ? r : r * 0.32;
+    ctx.lineTo(Math.cos(ang - Math.PI / 2) * rr, Math.sin(ang - Math.PI / 2) * rr);
+  }
+  ctx.closePath(); ctx.fill(); ctx.restore();
+}
+
+function _sparkleOverlay(ctx, t) {
+  const W = ctx.canvas.width, H = ctx.canvas.height;
+  const pts = [[0.13, 0.18], [0.87, 0.14], [0.10, 0.62], [0.90, 0.58], [0.50, 0.07], [0.22, 0.40], [0.80, 0.34]];
+  const u = Math.min(W, H) / 270;
+  pts.forEach((p, k) => {
+    const a = Math.sin(((t * 2 + k * 0.37) % 1) * Math.PI);
+    if (a < 0.06) return;
+    _drawStar(ctx, p[0] * W, p[1] * H, (7 + (k % 3) * 3) * u * (0.6 + 0.4 * a), a);
+  });
+}
+
+// 動きの定義：t（0〜1）を受け取り、その瞬間の変形を返す
+const ANIM_EFFECTS = {
+  purupuru: { label: 'ぷるぷる', emoji: '😆', fn: t => ({ rot: Math.sin(t * Math.PI * 8) * 4, x: Math.sin(t * Math.PI * 12) * 0.005 }) },
+  pyonpyon: { label: 'ぴょんぴょん', emoji: '🐰', fn: t => {
+    const p = (t * 2) % 1, j = Math.abs(Math.sin(p * Math.PI));
+    const land = p < 0.1 || p > 0.9; // 着地の瞬間はつぶす（スクワッシュ）
+    return { y: -j * 0.09, sx: land ? 1.07 : 1, sy: land ? 0.9 : 1 + j * 0.04, pivotBottom: true };
+  } },
+  yurayura: { label: 'ゆらゆら', emoji: '🎐', fn: t => ({ rot: Math.sin(t * Math.PI * 2) * 9, pivotBottom: true }) },
+  dokidoki: { label: 'ドキドキ', emoji: '💓', fn: t => ({ scale: 1 + 0.07 * Math.pow(Math.abs(Math.sin(t * Math.PI * 2)), 3) }) },
+  kirakira: { label: 'キラキラ', emoji: '✨', fn: t => ({ scale: 1 + 0.02 * Math.sin(t * Math.PI * 2) }), overlay: _sparkleOverlay },
+  popin: { label: 'ぴょこっと登場', emoji: '🎉', fn: t => {
+    let s;
+    if (t < 0.35) { const u = t / 0.35; s = u < 0.8 ? (u / 0.8) * 1.12 : 1.12 - ((u - 0.8) / 0.2) * 0.12; }
+    else s = 1 + 0.02 * Math.sin((t - 0.35) * Math.PI * 4);
+    return { scale: Math.max(0.03, s) };
+  } },
+  tokotoko: { label: 'とことこ', emoji: '🚶', fn: t => ({
+    x: Math.sin(t * Math.PI * 2) * 0.09,
+    y: -Math.abs(Math.sin(t * Math.PI * 8)) * 0.02,
+    rot: Math.sin(t * Math.PI * 8) * 3,
+  }) },
+  kururi: { label: 'くるっと一回転', emoji: '🌀', fn: t => {
+    let rot = 0, y = 0;
+    if (t > 0.15 && t < 0.65) { const u = (t - 0.15) / 0.5; rot = 360 * _ease(u); y = -Math.sin(u * Math.PI) * 0.05; }
+    return { rot, y };
+  } },
+};
+
+// ===== APNGエンコード =====
+let _crcTable = null;
+function _crc32(u8, off, len) {
+  if (!_crcTable) {
+    _crcTable = new Int32Array(256);
+    for (let n = 0; n < 256; n++) {
+      let c = n;
+      for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+      _crcTable[n] = c;
+    }
+  }
+  let c = -1;
+  for (let i = off; i < off + len; i++) c = _crcTable[(c ^ u8[i]) & 255] ^ (c >>> 8);
+  return (c ^ -1) >>> 0;
+}
+
+// APNGのループ回数（acTLチャンクのnum_plays）を書き換える。
+// LINEは「再生時間×ループ＝合計4秒以内」の設定が必要（無限ループは不可）。
+function patchApngPlays(buf, plays) {
+  const u8 = new Uint8Array(buf);
+  let off = 8; // PNGシグネチャの後ろから
+  while (off + 12 <= u8.length) {
+    const len = (u8[off] << 24) | (u8[off + 1] << 16) | (u8[off + 2] << 8) | u8[off + 3];
+    const type = String.fromCharCode(u8[off + 4], u8[off + 5], u8[off + 6], u8[off + 7]);
+    if (type === 'acTL') {
+      const p = off + 12; // データ部：num_frames(4) + num_plays(4)
+      u8[p] = (plays >>> 24) & 255; u8[p + 1] = (plays >>> 16) & 255; u8[p + 2] = (plays >>> 8) & 255; u8[p + 3] = plays & 255;
+      const crc = _crc32(u8, off + 4, len + 4);
+      const c = off + 8 + len;
+      u8[c] = (crc >>> 24) & 255; u8[c + 1] = (crc >>> 16) & 255; u8[c + 2] = (crc >>> 8) & 255; u8[c + 3] = crc & 255;
+      break;
+    }
+    off += 12 + len;
+  }
+  return u8;
+}
+
+function u8ToB64(u8) {
+  let s = '';
+  const CH = 0x8000;
+  for (let i = 0; i < u8.length; i += CH) s += String.fromCharCode.apply(null, u8.subarray(i, i + CH));
+  return btoa(s);
+}
+
+function animFramesFor(seconds) { return seconds >= 2 ? 16 : 12; } // LINE規格の5〜20フレーム内
+function animPlaysFor(seconds) { return seconds >= 3 ? 1 : (seconds >= 2 ? 2 : 4); } // 再生時間×ループ＝合計4秒以内
+
+// スタンプ画像＋動き → APNG（base64）を作る。300KB超なら色数を落として再圧縮。
+async function buildStampApng(imgB64, effectKey, seconds, W, H) {
+  if (typeof UPNG === 'undefined' || typeof pako === 'undefined') {
+    throw new Error('アニメ用ライブラリ(UPNG.js)の読み込みに失敗しています。ネット接続を確認してページを再読み込みしてください。');
+  }
+  W = W || ANIM_W; H = H || ANIM_H;
+  const frameCount = animFramesFor(seconds);
+  const eff = ANIM_EFFECTS[effectKey] || ANIM_EFFECTS.purupuru;
+  const img = await loadImage(b64src(imgB64));
+  const info = charInfo(img);
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const ctx = cv.getContext('2d');
+  const frames = [];
+  for (let f = 0; f < frameCount; f++) {
+    const t = f / frameCount;
+    ctx.clearRect(0, 0, W, H);
+    drawCharFrame(ctx, info, eff.fn(t));
+    if (eff.overlay) eff.overlay(ctx, t);
+    frames.push(ctx.getImageData(0, 0, W, H).data.buffer.slice(0));
+  }
+  const delay = Math.round(seconds * 1000 / frameCount);
+  const dels = new Array(frameCount).fill(delay);
+  const plays = animPlaysFor(seconds);
+  let u8 = null;
+  for (const cnum of [256, 128, 64, 32]) {
+    const buf = UPNG.encode(frames, W, H, cnum, dels);
+    u8 = patchApngPlays(buf, plays);
+    if (u8.length <= ANIM_MAX_BYTES) break;
+  }
+  return { b64: u8ToB64(u8), size: u8.length };
+}
+
+// 画像を差し替えたスタンプのアニメを、同じ動きで作り直す
+async function refreshAnim(i) {
+  const c = state.captions[i];
+  if (!c || !c.anim || !c.image) return;
+  if (c.anim.custom) return; // パラパラ（コマ持ち込み）は元画像と独立なので作り直さない
+  try {
+    const r = await buildStampApng(c.image, c.anim.effect, c.anim.seconds);
+    c.anim.apng = r.b64;
+  } catch (e) {
+    console.warn('アニメの再生成に失敗:', e);
+    c.anim = null;
+  }
+}
+
+// ===== アニメ化モーダル =====
+let _anim = null;
+async function openAnim(i) {
+  const c = state.captions[i];
+  if (!c || !c.image) { alert('先に画像を作成/割り当ててください'); return; }
+  if (typeof UPNG === 'undefined' || typeof pako === 'undefined') {
+    alert('アニメ用ライブラリの読み込みに失敗しました。\nネット接続を確認してページを再読み込みしてください。');
+    return;
+  }
+  let img;
+  try { img = await loadImage(b64src(c.image)); } catch (e) { alert(e.message); return; }
+  _anim = {
+    i, info: charInfo(img),
+    effect: (c.anim && c.anim.effect) || 'purupuru',
+    seconds: (c.anim && c.anim.seconds) || 1,
+    raf: 0, t0: performance.now(),
+  };
+  document.getElementById('animSeconds').value = String(_anim.seconds);
+  document.getElementById('animRemoveBtn').style.display = c.anim ? '' : 'none';
+  document.getElementById('animSizeInfo').textContent = c.anim
+    ? `現在の動き：${(ANIM_EFFECTS[c.anim.effect] || {}).label || ''}（保存時に自動で300KB以下へ圧縮）`
+    : '保存時に自動で300KB以下へ圧縮します';
+  renderFxGrid();
+  document.getElementById('animModal').classList.add('open');
+  _animLoop();
+}
+function closeAnim() {
+  if (_anim && _anim.raf) cancelAnimationFrame(_anim.raf);
+  _anim = null;
+  document.getElementById('animModal').classList.remove('open');
+}
+function renderFxGrid() {
+  const grid = document.getElementById('fxGrid');
+  if (!grid || !_anim) return;
+  grid.innerHTML = Object.entries(ANIM_EFFECTS).map(([k, e]) =>
+    `<div class="fx-pill ${k === _anim.effect ? 'active' : ''}" onclick="setAnimFx('${k}')">${e.emoji} ${e.label}</div>`
+  ).join('');
+}
+function setAnimFx(k) {
+  if (!_anim || !ANIM_EFFECTS[k]) return;
+  _anim.effect = k;
+  _anim.t0 = performance.now(); // 動きを頭から再生
+  renderFxGrid();
+}
+function setAnimSeconds(v) {
+  if (!_anim) return;
+  _anim.seconds = parseInt(v, 10) || 1;
+  _anim.t0 = performance.now();
+}
+function _animLoop() {
+  if (!_anim) return;
+  const cv = document.getElementById('animCanvas');
+  const ctx = cv.getContext('2d');
+  const dur = _anim.seconds * 1000;
+  const t = ((performance.now() - _anim.t0) % dur) / dur;
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  const eff = ANIM_EFFECTS[_anim.effect];
+  drawCharFrame(ctx, _anim.info, eff.fn(t));
+  if (eff.overlay) eff.overlay(ctx, t);
+  _anim.raf = requestAnimationFrame(_animLoop);
+}
+
+async function applyAnim() {
+  if (!_anim) return;
+  const { i, effect, seconds } = _anim;
+  const btn = document.getElementById('animApplyBtn');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>作成中…';
+  try {
+    const r = await buildStampApng(state.captions[i].image, effect, seconds);
+    state.captions[i].anim = { effect, seconds, apng: r.b64 };
+    closeAnim();
+    renderStamps();
+    if (r.size > ANIM_MAX_BYTES) {
+      alert(`⚠ 圧縮してもファイルサイズが ${(r.size / 1024).toFixed(0)}KB になりました（LINEの上限は300KB）。\nキャラをシンプルにするか「ふつう（1秒）」をお試しください。`);
+    }
+  } catch (e) {
+    alert('アニメの作成に失敗しました：' + e.message);
+  } finally {
+    btn.disabled = false; btn.innerHTML = '✔ この動きにする';
+  }
+}
+
+async function applyAnimAll() {
+  if (!_anim) return;
+  const { effect, seconds } = _anim;
+  const label = (ANIM_EFFECTS[effect] || {}).label || effect;
+  const targets = state.captions.map((c, idx) => c.image ? idx : -1).filter(v => v >= 0);
+  if (!targets.length) { alert('完成した画像がありません'); return; }
+  if (!confirm(`完成済みの ${targets.length}個 全部に「${label}」の動きを適用します。よろしいですか？\n（1個ずつ違う動きにしたい場合は、各スタンプの🎞ボタンから個別に設定できます）`)) return;
+  closeAnim();
+  const info = document.getElementById('genInfo');
+  let done = 0;
+  for (const idx of targets) {
+    try {
+      const r = await buildStampApng(state.captions[idx].image, effect, seconds);
+      state.captions[idx].anim = { effect, seconds, apng: r.b64 };
+    } catch (e) {
+      console.warn(`アニメ化失敗 #${idx + 1}:`, e);
+    }
+    done++;
+    if (info) info.innerHTML = `🎞 アニメ化中… ${done}/${targets.length}`;
+  }
+  renderStamps();
+  alert(`✓ ${done}個のスタンプに「${label}」の動きを付けました。\n「🎞 アニメスタンプZIP」でLINE申請用にまとめられます。`);
+}
+
+async function downloadAnimOne() {
+  if (!_anim) return;
+  const { i, effect, seconds } = _anim;
+  const btn = document.getElementById('animDlBtn');
+  btn.disabled = true;
+  try {
+    const r = await buildStampApng(state.captions[i].image, effect, seconds);
+    const url = URL.createObjectURL(b64ToBlob(r.b64));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${String(i + 1).padStart(2, '0')}_${safeName(state.captions[i].text)}_anim.png`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    alert('APNGの作成に失敗しました：' + e.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function removeAnim() {
+  if (!_anim) return;
+  state.captions[_anim.i].anim = null;
+  closeAnim();
+  renderStamps();
+}
+
+// ===== ⑤ 手持ち画像 → 動きを付ける（スタンプ一覧に追加） =====
+async function onOwnImages(e) {
+  const files = Array.from(e.target.files || []);
+  e.target.value = '';
+  if (!files.length) return;
+  const bgRemove = document.getElementById('ownBgRemoveChk').checked;
+  const btn = document.getElementById('ownImgBtn');
+  if (btn) btn.disabled = true;
+  const added = [];
+  let done = 0;
+  for (const f of files) {
+    if (btn) btn.innerHTML = `<span class="spinner"></span>取り込み中… ${++done}/${files.length}`;
+    try {
+      let { dataUrl } = await normalizeImageFile(f, 1024);
+      if (bgRemove) dataUrl = await whiteToTransparent(dataUrl);
+      state.captions.push({
+        text: (f.name || 'stamp').replace(/\.[^.]+$/, ''),
+        emotion: '', composition: '', customPrompt: '', customStyle: '',
+        refImage: null, image: dataUrl.split(',')[1], status: 'done', error: null,
+      });
+      added.push(state.captions.length - 1);
+    } catch (err) { alert(`「${f.name}」：${err.message}`); }
+  }
+  if (btn) { btn.disabled = false; btn.innerHTML = '📷 画像に動きを付ける'; }
+  if (!added.length) return;
+  save();
+  renderCaptions();
+  renderStamps();
+  if (added.length === 1) {
+    openAnim(added[0]); // 1枚だけなら、そのまま動き選びへ
+  } else {
+    alert(`${added.length}枚をスタンプ一覧（④）に追加しました。\n各スタンプの🎞ボタンで動きを付けられます。\n💡 🎞モーダルの「✨ 全部に適用」で全部同じ動きの一括設定もできます。`);
+  }
+}
+
+// ===== ⑤ コマ画像でパラパラアニメ =====
+let _frames = null;
+
+async function onFrameImages(e) {
+  const files = Array.from(e.target.files || []);
+  e.target.value = '';
+  if (!files.length) return;
+  const bgRemove = document.getElementById('ownBgRemoveChk').checked;
+  const isOpen = document.getElementById('framesModal').classList.contains('open');
+  if (!isOpen || !_frames) _frames = { list: [], seconds: 1, raf: 0, t0: performance.now() };
+  const btn = document.getElementById('frameImgBtn');
+  if (btn) btn.disabled = true;
+  let over = false, done = 0;
+  for (const f of files) {
+    if (_frames.list.length >= 20) { over = true; break; }
+    if (btn) btn.innerHTML = `<span class="spinner"></span>取り込み中… ${++done}/${files.length}`;
+    try {
+      let { dataUrl } = await normalizeImageFile(f, 1024);
+      if (bgRemove) dataUrl = await whiteToTransparent(dataUrl);
+      const img = await loadImage(dataUrl);
+      _frames.list.push({ dataUrl, img });
+    } catch (err) { alert(`「${f.name}」：${err.message}`); }
+  }
+  if (btn) { btn.disabled = false; btn.innerHTML = '🎬 コマ画像でパラパラアニメ'; }
+  if (over) alert('コマはLINE規格の上限20枚までです。21枚目以降は取り込みませんでした。');
+  if (!_frames.list.length) { _frames = null; return; }
+  document.getElementById('framesSeconds').value = String(_frames.seconds);
+  renderFramesStrip();
+  if (!isOpen) {
+    document.getElementById('framesModal').classList.add('open');
+    _framesLoop();
+  }
+}
+
+function closeFrames() {
+  if (_frames && _frames.raf) cancelAnimationFrame(_frames.raf);
+  _frames = null;
+  document.getElementById('framesModal').classList.remove('open');
+}
+
+function setFramesSeconds(v) {
+  if (!_frames) return;
+  _frames.seconds = parseInt(v, 10) || 1;
+  _frames.t0 = performance.now();
+  renderFramesStrip();
+}
+
+function moveFrame(i, dir) {
+  if (!_frames) return;
+  const j = i + dir;
+  if (j < 0 || j >= _frames.list.length) return;
+  const t = _frames.list[i]; _frames.list[i] = _frames.list[j]; _frames.list[j] = t;
+  renderFramesStrip();
+}
+
+function removeFrame(i) {
+  if (!_frames) return;
+  _frames.list.splice(i, 1);
+  if (!_frames.list.length) { closeFrames(); return; }
+  renderFramesStrip();
+}
+
+function renderFramesStrip() {
+  const strip = document.getElementById('framesStrip');
+  if (!strip || !_frames) return;
+  strip.innerHTML = _frames.list.map((fr, i) => `
+    <div style="text-align:center">
+      <div class="clip-thumb" style="cursor:default"><img src="${fr.dataUrl}" alt="コマ${i + 1}"><button class="x" onclick="removeFrame(${i})" title="このコマを削除">✕</button></div>
+      <div style="display:flex;gap:2px;justify-content:center;margin-top:2px">
+        <button class="btn btn-secondary" style="padding:2px 7px;font-size:10px;min-height:0" onclick="moveFrame(${i},-1)" title="前へ">◀</button>
+        <span style="font-size:10px;color:#888;line-height:20px">${i + 1}</span>
+        <button class="btn btn-secondary" style="padding:2px 7px;font-size:10px;min-height:0" onclick="moveFrame(${i},1)" title="後ろへ">▶</button>
+      </div>
+    </div>`).join('');
+  const seq = _expandFrameList(_frames.list);
+  const info = document.getElementById('framesInfo');
+  if (info) info.textContent = `${_frames.list.length}コマ${seq.length !== _frames.list.length ? `（繰り返して${seq.length}コマで書き出し）` : ''}・${_frames.seconds}秒 × ${animPlaysFor(_frames.seconds)}ループ`;
+}
+
+// LINE規格の最低5コマを満たすよう、足りない場合はシーケンスを繰り返す（上限20コマ）
+function _expandFrameList(list) {
+  const n = list.length;
+  if (!n) return [];
+  const reps = Math.max(1, Math.ceil(5 / n));
+  let seq = [];
+  for (let r = 0; r < reps; r++) seq = seq.concat(list);
+  return seq.slice(0, 20);
+}
+
+// コマ画像を丸ごと（切り詰めなしで）キャンバスに収めて描く。コマ間で位置がブレないように
+function drawFullFrame(ctx, img) {
+  const W = ctx.canvas.width, H = ctx.canvas.height;
+  const s = Math.min(W * 0.96 / img.naturalWidth, H * 0.96 / img.naturalHeight);
+  const dw = img.naturalWidth * s, dh = img.naturalHeight * s;
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(img, (W - dw) / 2, (H - dh) / 2, dw, dh);
+}
+
+function _framesLoop() {
+  if (!_frames) return;
+  const cv = document.getElementById('framesCanvas');
+  const ctx = cv.getContext('2d');
+  const seq = _expandFrameList(_frames.list);
+  if (seq.length) {
+    const dur = _frames.seconds * 1000;
+    const t = ((performance.now() - _frames.t0) % dur) / dur;
+    const idx = Math.min(seq.length - 1, Math.floor(t * seq.length));
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    drawFullFrame(ctx, seq[idx].img);
+  }
+  _frames.raf = requestAnimationFrame(_framesLoop);
+}
+
+// コマ画像のリスト → APNG（base64）
+async function buildFramesApng(list, seconds, W, H) {
+  if (typeof UPNG === 'undefined' || typeof pako === 'undefined') {
+    throw new Error('アニメ用ライブラリ(UPNG.js)の読み込みに失敗しています。ネット接続を確認してページを再読み込みしてください。');
+  }
+  W = W || ANIM_W; H = H || ANIM_H;
+  const seq = _expandFrameList(list);
+  if (!seq.length) throw new Error('コマがありません');
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const ctx = cv.getContext('2d');
+  const frames = [];
+  for (const fr of seq) {
+    ctx.clearRect(0, 0, W, H);
+    drawFullFrame(ctx, fr.img);
+    frames.push(ctx.getImageData(0, 0, W, H).data.buffer.slice(0));
+  }
+  const delay = Math.round(seconds * 1000 / seq.length);
+  const dels = new Array(seq.length).fill(delay);
+  const plays = animPlaysFor(seconds);
+  let u8 = null;
+  for (const cnum of [256, 128, 64, 32]) {
+    const buf = UPNG.encode(frames, W, H, cnum, dels);
+    u8 = patchApngPlays(buf, plays);
+    if (u8.length <= ANIM_MAX_BYTES) break;
+  }
+  return { b64: u8ToB64(u8), size: u8.length };
+}
+
+async function applyFrames() {
+  if (!_frames || !_frames.list.length) return;
+  if (_frames.list.length < 2) { alert('パラパラアニメにはコマが2枚以上必要です。\n「＋ コマを追加」で増やしてください。'); return; }
+  const btn = document.getElementById('framesApplyBtn');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>作成中…';
+  try {
+    const r = await buildFramesApng(_frames.list, _frames.seconds);
+    state.captions.push({
+      text: `パラパラ${state.captions.length + 1}`,
+      emotion: '', composition: '', customPrompt: '', customStyle: '',
+      refImage: null,
+      image: _frames.list[0].dataUrl.split(',')[1], // 静止画（tab等用）は1コマ目
+      anim: { custom: true, label: 'パラパラ', seconds: _frames.seconds, apng: r.b64, frames: _frames.list.map(f => f.dataUrl) },
+      status: 'done', error: null,
+    });
+    closeFrames();
+    save();
+    renderCaptions();
+    renderStamps();
+    if (r.size > ANIM_MAX_BYTES) {
+      alert(`⚠ 圧縮してもファイルサイズが ${(r.size / 1024).toFixed(0)}KB になりました（LINEの上限は300KB）。\nコマ数を減らすか、画像をシンプルにしてください。`);
+    }
+  } catch (e) {
+    alert('パラパラアニメの作成に失敗しました：' + e.message);
+  } finally {
+    btn.disabled = false; btn.innerHTML = '✔ スタンプ一覧に追加';
+  }
+}
+
+async function downloadFramesApng() {
+  if (!_frames || !_frames.list.length) return;
+  const btn = document.getElementById('framesDlBtn');
+  btn.disabled = true;
+  try {
+    const r = await buildFramesApng(_frames.list, _frames.seconds);
+    const url = URL.createObjectURL(b64ToBlob(r.b64));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `parapara_${new Date().toISOString().slice(0, 10)}.png`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    alert('APNGの作成に失敗しました：' + e.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// main.png（240×240 APNG）を、そのスタンプのアニメ種別に応じて作る
+async function buildMainApng(mc) {
+  if (mc.anim.custom) {
+    const srcs = (mc.anim.frames && mc.anim.frames.length) ? mc.anim.frames : [b64src(mc.image)];
+    const list = [];
+    for (const du of srcs) list.push({ img: await loadImage(du) });
+    return buildFramesApng(list, mc.anim.seconds, 240, 240);
+  }
+  return buildStampApng(mc.image, mc.anim.effect, mc.anim.seconds, 240, 240);
+}
+
+// LINEアニメーションスタンプ申請用ZIP：01.png〜(APNG) + main.png(APNG 240×240) + tab.png(静止 96×74)
+async function downloadAnimZip() {
+  const anims = state.captions.map((c, i) => ({ c, i })).filter(o => o.c.anim && o.c.anim.apng);
+  if (!anims.length) { alert('アニメ化したスタンプがありません。\n各スタンプの🎞ボタンから動きを付けてください。'); return; }
+  const still = state.captions.filter(c => c.image && !c.anim).length;
+  if (still && !confirm(`アニメ未設定のスタンプが ${still}個 あります（アニメZIPには入りません）。\nこのまま ${anims.length}個 でZIPを作りますか？\n\n※LINEのアニメーションスタンプは、セット内の全スタンプがアニメである必要があります。\n💡 🎞モーダルの「✨ 全部に適用」で一括アニメ化できます。`)) return;
+  const btn = document.getElementById('animZipBtn');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner spinner-dark"></span>作成中…';
+  try {
+    const zip = new JSZip();
+    let n = 0;
+    for (const o of anims) {
+      n++;
+      zip.file(`${String(n).padStart(2, '0')}.png`, o.c.anim.apng, { base64: true });
+    }
+    // main.png：メイン画像に選んだスタンプ（アニメ付き）から240×240のAPNGを作る
+    const sel = document.getElementById('mainSrcSelect');
+    let mi = sel ? parseInt(sel.value, 10) : NaN;
+    if (isNaN(mi) || !(state.captions[mi] && state.captions[mi].anim)) mi = anims[0].i;
+    const mc = state.captions[mi];
+    const main = await buildMainApng(mc);
+    zip.file('main.png', main.b64, { base64: true });
+    // tab.png はLINE規格で静止画
+    const tab = await sizeImage(b64src(mc.image), LINE_SIZE.tabW, LINE_SIZE.tabH, true);
+    zip.file('tab.png', tab, { base64: true });
+    const blob = await zip.generateAsync({ type: 'blob' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `line-anim-stamps_${safeName(state.theme)}_${new Date().toISOString().slice(0, 10)}.zip`;
+    a.click();
+    URL.revokeObjectURL(url);
+    if (![8, 16, 24].includes(anims.length)) {
+      alert(`⚠ アニメスタンプは ${anims.length}個 です。\nLINEのアニメーションスタンプは【8個・16個・24個】のどれかでの申請が必要です。個数を調整してから再度ZIPを作ってください。`);
+    }
+  } catch (e) {
+    alert('アニメZIPの作成に失敗しました：' + e.message);
+  } finally {
+    btn.disabled = false; btn.innerHTML = '🎞 アニメスタンプZIP';
+    refreshZipBtn();
+  }
+}
+
 // ========== IndexedDB (history of full sets including images) ==========
 let _idb = null;
 function idbInit() {
@@ -2169,6 +2906,7 @@ async function idbSaveSet(name) {
       text: c.text, emotion: c.emotion, composition: c.composition,
       customPrompt: c.customPrompt || '', customStyle: c.customStyle || '',
       image: c.image || null,
+      anim: c.anim ? { ...c.anim } : null, // 動き種別・秒数・APNG（パラパラはコマ画像も）を丸ごと保存
     })),
   };
   return new Promise((res, rej) => {
@@ -2277,6 +3015,7 @@ async function loadSet(id) {
     customPrompt: c.customPrompt || '', customStyle: c.customStyle || '',
     refImage: null,
     image: c.image || null,
+    anim: c.anim || null,
     status: c.image ? 'done' : 'idle',
     error: null,
   }));
