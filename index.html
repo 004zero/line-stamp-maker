@@ -504,7 +504,7 @@
       </div>
       <div class="modal-actions">
         <button class="btn btn-secondary" onclick="closeEdit()">キャンセル</button>
-        <button class="btn btn-primary" onclick="applyEdit()">✔ 保存</button>
+        <button class="btn btn-primary" id="editApplyBtn" onclick="applyEdit()">✔ 保存</button>
       </div>
     </div>
   </div>
@@ -1057,7 +1057,8 @@ function openEdit(i) {
     canvas.height = img.naturalHeight;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(img, 0, 0);
-    _edit = { i, canvas, ctx, tool: 'eraser', drawing: false, panning: false, last: null, history: [], view: { z: 1, ox: 0, oy: 0 } };
+    _edit = { i, canvas, ctx, tool: 'eraser', drawing: false, panning: false, last: null, history: [], view: { z: 1, ox: 0, oy: 0 },
+      baseline: ctx.getImageData(0, 0, canvas.width, canvas.height) }; // 編集前の状態（パラパラの全コマ反映に使う）
     _applyView();
     setEditTool('eraser');
     document.getElementById('editModal').classList.add('open');
@@ -1154,17 +1155,99 @@ async function editRemoveWhite() {
   img.onload = () => { _edit.ctx.clearRect(0, 0, _edit.canvas.width, _edit.canvas.height); _edit.ctx.drawImage(img, 0, 0); };
   img.src = url;
 }
-function applyEdit() {
+async function applyEdit() {
   if (!_edit) return;
   const ei = _edit.i;
-  const b64 = _edit.canvas.toDataURL('image/png').split(',')[1];
-  state.captions[ei].image = b64;
-  state.captions[ei].status = 'done';
+  const c = state.captions[ei];
+  const cv = _edit.canvas, ctx = _edit.ctx;
+  const editedB64 = cv.toDataURL('image/png').split(',')[1];
+  c.image = editedB64;
+  c.status = 'done';
+
+  // パラパラ（コマ持ち込み）アニメ：消しゴム/ペンの編集を「全コマ」に反映してAPNGを作り直す。
+  // これをしないと、編集は1コマ目(静止画)にしか効かず、動きの2コマ目以降に反映されない。
+  if (c.anim && c.anim.custom && Array.isArray(c.anim.frames) && c.anim.frames.length) {
+    const btn = document.getElementById('editApplyBtn');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>全コマに反映中…'; }
+    try {
+      const base = _edit.baseline;
+      const cur = ctx.getImageData(0, 0, cv.width, cv.height);
+      let newFrames;
+      if (base && base.width === cur.width && base.height === cur.height) {
+        // 消しゴム/ペンのみ（サイズ不変）→ 差分マスクを全コマへ適用
+        newFrames = await applyEditDiffToFrames(c.anim.frames, base, cur);
+      } else {
+        // 拡大・背景差し込み等でサイズが変わった編集 → 1コマ目だけ差し替え
+        newFrames = c.anim.frames.slice();
+        newFrames[0] = b64src(editedB64);
+      }
+      const list = [];
+      for (const du of newFrames) list.push({ img: await loadImage(du) });
+      const r = await buildFramesApng(list, c.anim.seconds);
+      c.anim.frames = newFrames;
+      c.anim.apng = r.b64;
+      c.image = newFrames[0].split(',')[1]; // 静止画(tab等)も編集後の1コマ目に更新
+    } catch (e) {
+      console.warn('パラパラの編集反映に失敗:', e);
+      alert('編集をアニメに反映できませんでした：\n' + e.message);
+    } finally {
+      if (btn) { btn.disabled = false; btn.innerHTML = '✔ 保存'; }
+    }
+    save();
+    renderStamps();
+    closeEdit();
+    return;
+  }
+
   save();
   renderStamps();
   closeEdit();
-  // アニメ設定済みなら、修正後の画像で動きを作り直す
-  if (state.captions[ei].anim) refreshAnim(ei).then(() => { save(); renderStamps(); });
+  // 動き付き（エフェクト方式）は、修正後の画像で動きを作り直す
+  if (c.anim) refreshAnim(ei).then(() => { save(); renderStamps(); });
+}
+
+// 編集前(base)→編集後(cur)の差分から「消した部分」と「描き足した部分」を求め、
+// 全コマに同じ編集を適用して新しいコマのdataUrl配列を返す。
+async function applyEditDiffToFrames(frameUrls, base, cur) {
+  const w = base.width, h = base.height;
+  const bd = base.data, cd = cur.data;
+  const eraseCv = document.createElement('canvas'); eraseCv.width = w; eraseCv.height = h;
+  const eraseImg = eraseCv.getContext('2d').createImageData(w, h);
+  const penCv = document.createElement('canvas'); penCv.width = w; penCv.height = h;
+  const penImg = penCv.getContext('2d').createImageData(w, h);
+  let hasErase = false, hasPen = false;
+  for (let p = 0; p < w * h; p++) {
+    const i = p * 4;
+    const ba = bd[i + 3], ca = cd[i + 3];
+    if (ba > 20 && ca < 20) {
+      // 不透明→透明＝消しゴムで消した部分
+      eraseImg.data[i + 3] = 255; // マスクは不透明の黒（destination-outで使う）
+      hasErase = true;
+    } else if (ca > 20 && (cd[i] !== bd[i] || cd[i + 1] !== bd[i + 1] || cd[i + 2] !== bd[i + 2] || ca !== ba)) {
+      // 色が変わった/描き足された部分＝ペン。編集後の色をそのまま重ねる
+      penImg.data[i] = cd[i]; penImg.data[i + 1] = cd[i + 1]; penImg.data[i + 2] = cd[i + 2]; penImg.data[i + 3] = ca;
+      hasPen = true;
+    }
+  }
+  if (hasErase) eraseCv.getContext('2d').putImageData(eraseImg, 0, 0);
+  if (hasPen) penCv.getContext('2d').putImageData(penImg, 0, 0);
+
+  const out = [];
+  for (const du of frameUrls) {
+    const img = await loadImage(du);
+    const fw = img.naturalWidth, fh = img.naturalHeight;
+    const fc = document.createElement('canvas'); fc.width = fw; fc.height = fh;
+    const fx = fc.getContext('2d');
+    fx.drawImage(img, 0, 0);
+    if (hasErase) {
+      fx.globalCompositeOperation = 'destination-out';
+      fx.drawImage(eraseCv, 0, 0, fw, fh); // マスクをコマのサイズに合わせて適用
+      fx.globalCompositeOperation = 'source-over';
+    }
+    if (hasPen) fx.drawImage(penCv, 0, 0, fw, fh);
+    out.push(fc.toDataURL('image/png'));
+  }
+  return out;
 }
 
 // 修正モーダル：1枚だけ自動フィット（キャラ検出→標準サイズ・中央へ）
@@ -1664,7 +1747,9 @@ Square 1:1 composition. NO copyrighted characters or brand logos. NO violence or
 // キャラの白目・歯・ハイライト等を誤って消す恐れがあるため、自動処理では使わず、
 // 手動の「白を透明に」ボタン（↩元に戻すあり）でのみ有効にする。
 function whiteToTransparent(dataUrl, tol, removePockets) {
-  tol = tol || 50; // 背景色との許容色距離
+  // 背景色との許容色距離。広すぎると背景に近い色の肌・体まで消えるため控えめに。
+  // 肌色(例 250,240,220)は白との距離≒38あるので、既定30なら消えず残る。
+  tol = tol || 30;
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
