@@ -85,7 +85,7 @@
 
     .modal-bg { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4); align-items: center; justify-content: center; z-index: 100; }
     .modal-bg.open { display: flex; }
-    .modal { background: white; border-radius: 12px; padding: 26px; max-width: 480px; width: 90%; }
+    .modal { background: white; border-radius: 12px; padding: 26px; max-width: 480px; width: 90%; max-height: 92vh; overflow-y: auto; overscroll-behavior: contain; }
     .modal h2 { font-size: 17px; margin-bottom: 16px; color: #06c755; }
     .modal .note { font-size: 11px; color: #888; margin-top: 8px; line-height: 1.6; }
     .modal-actions { display: flex; gap: 9px; justify-content: flex-end; margin-top: 18px; }
@@ -236,7 +236,7 @@
 </head>
 <body>
   <div class="header">
-    <h1>🟢 LINEスタンプメーカー <span style="font-size:10px;font-weight:400;opacity:0.75">v2026.07.06c</span></h1>
+    <h1>🟢 LINEスタンプメーカー <span style="font-size:10px;font-weight:400;opacity:0.75">v2026.07.06d</span></h1>
     <div class="header-actions">
       <span class="api-status" id="apiStatus">API未設定</span>
       <button class="btn btn-secondary btn-sm" onclick="openSettings()">⚙ 設定</button>
@@ -375,6 +375,7 @@
         <button class="btn btn-secondary btn-sm" onclick="exportToFolder()" id="folderBtn" disabled style="display:none">📂 フォルダに保存</button>
         <button class="btn btn-secondary btn-sm" onclick="downloadZip()" id="zipBtn" disabled>📦 ZIPでまとめてDL</button>
         <button class="btn btn-secondary btn-sm" onclick="downloadAnimZip()" id="animZipBtn" disabled title="🎞で動きを付けたスタンプを、LINEアニメーションスタンプ用のZIP（APNG）にまとめます">🎞 アニメスタンプZIP</button>
+        <button class="btn btn-secondary btn-sm" onclick="downloadPopupZip()" id="popupZipBtn" disabled title="トーク画面全体に大きく飛び出す「ポップアップスタンプ」用の素材（静止スタンプ＋480px APNG）を書き出します">🎉 ポップアップ用ZIP</button>
         <label style="font-size:12px;color:#555;display:inline-flex;align-items:center;gap:5px;cursor:pointer;border:1.5px solid #ddd;border-radius:7px;padding:7px 10px" title="オフにするとAPI課金される生成を止めます（切り抜きの直接使用はオフでも動きます）">
           <input type="checkbox" id="apiEnabledChk" checked onchange="state.apiEnabled=this.checked; save();">
           🤖 AI生成(API)を使う
@@ -2251,6 +2252,8 @@ function refreshZipBtn() {
   document.getElementById('zipBtn').disabled = !anyDone;
   const ab = document.getElementById('animZipBtn');
   if (ab) ab.disabled = !state.captions.some(c => c.anim && c.anim.apng);
+  const pb = document.getElementById('popupZipBtn');
+  if (pb) pb.disabled = !state.captions.some(c => c.anim && c.anim.apng);
   refreshFolderBtn();
   refreshSaveBtn();
 }
@@ -2614,6 +2617,19 @@ const ANIM_EFFECTS = {
     if (t > 0.15 && t < 0.65) { const u = (t - 0.15) / 0.5; rot = 360 * _ease(u); y = -Math.sin(u * Math.PI) * 0.05; }
     return { rot, y };
   } },
+  don: { label: 'ドーン！と登場', emoji: '💥', fn: t => {
+    // 小さい状態から一気に画面いっぱいまで拡大→少し戻って大きいままドヤ顔
+    let s;
+    if (t < 0.22) s = 0.15 + (t / 0.22) * 1.75;
+    else if (t < 0.34) s = 1.9 - ((t - 0.22) / 0.12) * 0.55;
+    else s = 1.35 + 0.05 * Math.sin((t - 0.34) * Math.PI * 3);
+    return { scale: Math.max(0.05, s) };
+  } },
+  doap: { label: 'ドアップ', emoji: '😳', fn: t => {
+    // 顔のあたりに画面いっぱいまでズームして戻る
+    const u = Math.sin(t * Math.PI);
+    return { scale: 1 + 1.1 * u, y: 0.16 * u };
+  } },
 };
 
 // ===== APNGエンコード =====
@@ -2664,7 +2680,8 @@ function animFramesFor(seconds) { return seconds >= 2 ? 16 : 12; } // LINE規格
 function animPlaysFor(seconds) { return seconds >= 3 ? 1 : (seconds >= 2 ? 2 : 4); } // 再生時間×ループ＝合計4秒以内
 
 // スタンプ画像＋動き → APNG（base64）を作る。300KB超なら色数を落として再圧縮。
-async function buildStampApng(imgB64, effectKey, seconds, W, H) {
+// playsOverride: ループ回数の明示指定（ポップアップ用。未指定ならLINEアニメスタンプ規格の回数）
+async function buildStampApng(imgB64, effectKey, seconds, W, H, playsOverride) {
   if (typeof UPNG === 'undefined' || typeof pako === 'undefined') {
     throw new Error('アニメ用ライブラリ(UPNG.js)の読み込みに失敗しています。ネット接続を確認してページを再読み込みしてください。');
   }
@@ -2685,7 +2702,7 @@ async function buildStampApng(imgB64, effectKey, seconds, W, H) {
   }
   const delay = Math.round(seconds * 1000 / frameCount);
   const dels = new Array(frameCount).fill(delay);
-  const plays = animPlaysFor(seconds);
+  const plays = playsOverride || animPlaysFor(seconds);
   let u8 = null;
   for (const cnum of [256, 128, 64, 32]) {
     const buf = UPNG.encode(frames, W, H, cnum, dels);
@@ -2991,7 +3008,7 @@ function _framesLoop() {
 }
 
 // コマ画像のリスト → APNG（base64）
-async function buildFramesApng(list, seconds, W, H) {
+async function buildFramesApng(list, seconds, W, H, playsOverride) {
   if (typeof UPNG === 'undefined' || typeof pako === 'undefined') {
     throw new Error('アニメ用ライブラリ(UPNG.js)の読み込みに失敗しています。ネット接続を確認してページを再読み込みしてください。');
   }
@@ -3008,7 +3025,7 @@ async function buildFramesApng(list, seconds, W, H) {
   }
   const delay = Math.round(seconds * 1000 / seq.length);
   const dels = new Array(seq.length).fill(delay);
-  const plays = animPlaysFor(seconds);
+  const plays = playsOverride || animPlaysFor(seconds);
   let u8 = null;
   for (const cnum of [256, 128, 64, 32]) {
     const buf = UPNG.encode(frames, W, H, cnum, dels);
@@ -3075,6 +3092,71 @@ async function buildMainApng(mc) {
     return buildFramesApng(list, mc.anim.seconds, 240, 240);
   }
   return buildStampApng(mc.image, mc.anim.effect, mc.anim.seconds, 240, 240);
+}
+
+// ===== ポップアップスタンプ（画面全体に大きく表示）書き出し =====
+// LINE規格：スタンプ画像=静止PNG(370×320以内) ＋ ポップアップ画像=APNG(480×480以内・一辺480px必須)
+// 5〜20フレーム・合計3秒以内・ループ1〜3回
+function popupPlaysFor(seconds) { return seconds >= 2 ? 1 : 3; }
+
+// 1スタンプ分のポップアップ画像（480×480 APNG）を作る
+async function buildPopupApng(c) {
+  const sec = Math.min(3, c.anim.seconds || 1);
+  const plays = popupPlaysFor(sec);
+  if (c.anim.custom) {
+    const srcs = (c.anim.frames && c.anim.frames.length) ? c.anim.frames : [b64src(c.image)];
+    const list = [];
+    for (const du of srcs) list.push({ img: await loadImage(du) });
+    return buildFramesApng(list, sec, 480, 480, plays);
+  }
+  return buildStampApng(c.image, c.anim.effect, sec, 480, 480, plays);
+}
+
+async function downloadPopupZip() {
+  const anims = state.captions.map((c, i) => ({ c, i })).filter(o => o.c.anim && o.c.image);
+  if (!anims.length) { alert('ポップアップスタンプには動きが必要です。\n先に各スタンプの🎞ボタンで動きを付けてください。'); return; }
+  const still = state.captions.filter(c => c.image && !c.anim).length;
+  if (still && !confirm(`アニメ未設定のスタンプが ${still}個 あります（ポップアップZIPには入りません）。\nこのまま ${anims.length}個 で作りますか？`)) return;
+  const btn = document.getElementById('popupZipBtn');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner spinner-dark"></span>作成中…'; }
+  try {
+    const zip = new JSZip();
+    let n = 0;
+    for (const o of anims) {
+      n++;
+      const nn = String(n).padStart(2, '0');
+      // トークに表示される通常のスタンプ画像（静止PNG）
+      const staticB64 = await sizeImage(b64src(o.c.image), LINE_SIZE.stampW, LINE_SIZE.stampH, false);
+      zip.file(`stamp/${nn}.png`, staticB64, { base64: true });
+      // 画面全体に出るポップアップ画像（APNG 480×480）
+      const pop = await buildPopupApng(o.c);
+      zip.file(`popup/${nn}.png`, pop.b64, { base64: true });
+    }
+    // main（静止240×240）・ポップアップmain（APNG480）・tab（静止96×74）
+    const sel = document.getElementById('mainSrcSelect');
+    let mi = sel ? parseInt(sel.value, 10) : NaN;
+    if (isNaN(mi) || !(state.captions[mi] && state.captions[mi].anim)) mi = anims[0].i;
+    const mc = state.captions[mi];
+    zip.file('main.png', await sizeImage(b64src(mc.image), LINE_SIZE.mainW, LINE_SIZE.mainH, true), { base64: true });
+    const popMain = await buildPopupApng(mc);
+    zip.file('popup_main.png', popMain.b64, { base64: true });
+    zip.file('tab.png', await sizeImage(b64src(mc.image), LINE_SIZE.tabW, LINE_SIZE.tabH, true), { base64: true });
+    const blob = await zip.generateAsync({ type: 'blob' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `line-popup-stamps_${safeName(state.theme)}_${new Date().toISOString().slice(0, 10)}.zip`;
+    a.click();
+    URL.revokeObjectURL(url);
+    let msg = `✓ ポップアップスタンプ用の素材一式（${anims.length}個分）を書き出しました。\n\n【中身】\n・stamp/01.png〜 … トークに出る通常スタンプ（静止画）\n・popup/01.png〜 … 画面全体に大きく出るアニメ（APNG 480px）\n・main.png / popup_main.png / tab.png\n\n【申請方法】LINE Creators Marketで新規スタンプ作成時に「ポップアップスタンプ」を選び、フォームの指示に従って スタンプ画像とポップアップ画像をそれぞれアップロードしてください。`;
+    if (![8, 16, 24].includes(anims.length)) msg += `\n\n⚠ 現在 ${anims.length}個 です。ポップアップスタンプは【8個・16個・24個】での申請が必要です。`;
+    alert(msg);
+  } catch (e) {
+    alert('ポップアップZIPの作成に失敗しました：' + e.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '🎉 ポップアップ用ZIP'; }
+    refreshZipBtn();
+  }
 }
 
 // LINEアニメーションスタンプ申請用ZIP：01.png〜(APNG) + main.png(APNG 240×240) + tab.png(静止 96×74)
