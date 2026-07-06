@@ -236,7 +236,7 @@
 </head>
 <body>
   <div class="header">
-    <h1>🟢 LINEスタンプメーカー <span style="font-size:10px;font-weight:400;opacity:0.75">v2026.07.07a</span></h1>
+    <h1>🟢 LINEスタンプメーカー <span style="font-size:10px;font-weight:400;opacity:0.75">v2026.07.07b</span></h1>
     <div class="header-actions">
       <span class="api-status" id="apiStatus">API未設定</span>
       <button class="btn btn-secondary btn-sm" onclick="openSettings()">⚙ 設定</button>
@@ -1345,11 +1345,9 @@ async function editAutoFit() {
   if (!_edit) return;
   const cv = _edit.canvas, ctx = _edit.ctx;
   if (_edit.frames) {
-    // 表示中コマの編集を確定 → 全コマを自動フィット → 表示を更新
+    // 表示中コマの編集を確定 → 全コマを自動フィット（同サイズなら共通枠でキャラの大きさ一定）
     _edit.frames[_edit.frameIndex] = cv.toDataURL('image/png');
-    for (let k = 0; k < _edit.frames.length; k++) {
-      _edit.frames[k] = b64src(await autoFitImage(_edit.frames[k]));
-    }
+    _edit.frames = await paraAutoFitAll(_edit.frames);
     const img = await loadImage(_edit.frames[_edit.frameIndex]);
     cv.width = img.naturalWidth; cv.height = img.naturalHeight;
     ctx.clearRect(0, 0, cv.width, cv.height);
@@ -2054,8 +2052,8 @@ async function bulkAutoFit() {
   for (const i of t) {
     const c = state.captions[i];
     if (_isPara(c)) {
-      // パラパラは全コマを揃え直してAPNGも再生成（1コマ目だけにならないように）
-      await processParaFrames(c, async du => b64src(await autoFitImage(du)));
+      // パラパラは全コマ共通の枠でフィット（キャラの大きさがコマ間で変わらない）
+      await rebuildParaFromFrames(c, await paraAutoFitAll(c.anim.frames));
     } else {
       c.image = await autoFitImage(b64src(c.image));
       await refreshAnim(i);
@@ -2083,7 +2081,10 @@ async function bulkFix() {
   for (const i of t) {
     const c = state.captions[i];
     if (_isPara(c)) {
-      await processParaFrames(c, async du => b64src(await autoFitImage(await whiteToTransparent(du))));
+      // 背景透明化→全コマ共通の枠でフィット
+      const cleaned = [];
+      for (const du of c.anim.frames) cleaned.push(await whiteToTransparent(du));
+      await rebuildParaFromFrames(c, await paraAutoFitAll(cleaned));
     } else {
       const u = await whiteToTransparent(b64src(c.image)); // 背景透明
       c.image = await autoFitImage(u);                      // 大きさ揃え
@@ -2760,17 +2761,70 @@ async function buildStampApng(imgB64, effectKey, seconds, W, H, playsOverride) {
   return { b64: u8ToB64(u8), size: u8.length };
 }
 
-// パラパラ（コマ持ち込み）の全コマに画像処理を適用し、APNG・静止画を作り直す。
-// fn: dataUrl を受け取り、処理後の dataUrl を返す非同期関数
-async function processParaFrames(c, fn) {
-  const newFrames = [];
-  for (const du of c.anim.frames) newFrames.push(await fn(du));
+// パラパラの新しいコマ配列からAPNG・静止画を作り直す
+async function rebuildParaFromFrames(c, newFrames) {
   const list = [];
   for (const du of newFrames) list.push({ img: await loadImage(du) });
   const r = await buildFramesApng(list, c.anim.seconds);
   c.anim.frames = newFrames;
   c.anim.apng = r.b64;
   c.image = newFrames[0].split(',')[1];
+}
+
+// パラパラ（コマ持ち込み）の全コマに画像処理を適用し、APNG・静止画を作り直す。
+// fn: dataUrl を受け取り、処理後の dataUrl を返す非同期関数
+async function processParaFrames(c, fn) {
+  const newFrames = [];
+  for (const du of c.anim.frames) newFrames.push(await fn(du));
+  await rebuildParaFromFrames(c, newFrames);
+}
+
+// 全コマ「共通の枠」で自動フィット：キャラの大きさがコマ間で絶対に変わらない。
+// 全コマの不透明部分の合併範囲を1つ求め、全コマに同じ切り出し・同じ倍率を適用する。
+// 全コマが同じ縦横サイズのときだけ使える（違うときはnullを返す）。
+async function autoFitFramesUniform(dataUrls) {
+  const imgs = [];
+  for (const du of dataUrls) imgs.push(await loadImage(du));
+  if (!imgs.length) return null;
+  const w0 = imgs[0].naturalWidth, h0 = imgs[0].naturalHeight;
+  if (!imgs.every(im => im.naturalWidth === w0 && im.naturalHeight === h0)) return null;
+  let minX = w0, minY = h0, maxX = -1, maxY = -1;
+  for (const im of imgs) {
+    const cv = document.createElement('canvas'); cv.width = w0; cv.height = h0;
+    const ctx = cv.getContext('2d'); ctx.drawImage(im, 0, 0);
+    const d = ctx.getImageData(0, 0, w0, h0).data;
+    for (let y = 0; y < h0; y++) for (let x = 0; x < w0; x++) {
+      if (d[(y * w0 + x) * 4 + 3] > 8) {
+        if (x < minX) minX = x; if (x > maxX) maxX = x;
+        if (y < minY) minY = y; if (y > maxY) maxY = y;
+      }
+    }
+  }
+  if (maxX < 0) return null;
+  const bw = maxX - minX + 1, bh = maxY - minY + 1;
+  const OW = 740, OH = 640, M = 0.06; // autoFitImageと同じ枠
+  const availW = OW * (1 - M * 2), availH = OH * (1 - M * 2);
+  const s = Math.min(availW / bw, availH / bh);
+  const dw = bw * s, dh = bh * s;
+  const out = [];
+  for (const im of imgs) {
+    const cv = document.createElement('canvas'); cv.width = OW; cv.height = OH;
+    const ctx = cv.getContext('2d');
+    ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(im, minX, minY, bw, bh, (OW - dw) / 2, (OH - dh) / 2, dw, dh);
+    out.push(cv.toDataURL('image/png'));
+  }
+  return out;
+}
+
+// パラパラ用の自動フィット：同サイズのコマ→共通枠（キャラの大きさ一定）、
+// サイズ混在（切り抜き等）→従来どおり1コマずつフィット（大きさを揃える）
+async function paraAutoFitAll(frames) {
+  const uni = await autoFitFramesUniform(frames);
+  if (uni) return uni;
+  const out = [];
+  for (const du of frames) out.push(b64src(await autoFitImage(du)));
+  return out;
 }
 
 // 画像を差し替えたスタンプのアニメを、同じ動きで作り直す
@@ -3039,12 +3093,11 @@ async function framesAutoFit() {
   const btn = document.getElementById('framesFitBtn');
   if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner spinner-dark"></span>整え中…'; }
   try {
-    for (let k = 0; k < _frames.list.length; k++) {
-      const b64 = await autoFitImage(_frames.list[k].dataUrl); // 740×640の枠にキャラを均一配置
-      const dataUrl = b64src(b64);
-      const img = await loadImage(dataUrl);
-      _frames.list[k] = { dataUrl, img };
-    }
+    // 同サイズのコマ→全コマ共通の枠（キャラの大きさ一定）／サイズ混在→1コマずつ均一化
+    const newUrls = await paraAutoFitAll(_frames.list.map(fr => fr.dataUrl));
+    const newList = [];
+    for (const du of newUrls) newList.push({ dataUrl: du, img: await loadImage(du) });
+    _frames.list = newList;
     _frames.t0 = performance.now(); // プレビューを頭から再生
     renderFramesStrip();
   } catch (e) {
