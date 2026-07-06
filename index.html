@@ -236,7 +236,7 @@
 </head>
 <body>
   <div class="header">
-    <h1>🟢 LINEスタンプメーカー <span style="font-size:10px;font-weight:400;opacity:0.75">v2026.07.06d</span></h1>
+    <h1>🟢 LINEスタンプメーカー <span style="font-size:10px;font-weight:400;opacity:0.75">v2026.07.06e</span></h1>
     <div class="header-actions">
       <span class="api-status" id="apiStatus">API未設定</span>
       <button class="btn btn-secondary btn-sm" onclick="openSettings()">⚙ 設定</button>
@@ -367,6 +367,7 @@
         <div class="clips-strip" id="clipsStrip"></div>
         <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn btn-secondary btn-sm" onclick="assignClipsInOrder()">➡ 切り抜きを順番にスタンプへ割り当て</button>
+          <button class="btn btn-secondary btn-sm" onclick="addFramesFromClips()" title="トレイの切り抜きを順番に再生するパラパラアニメを作る">🎬 切り抜きでパラパラアニメ</button>
           <button class="btn btn-danger btn-sm" onclick="state.clips=[]; renderClips();">✕ トレイを空に</button>
         </div>
       </div>
@@ -408,13 +409,15 @@
       <div style="font-size:12px;color:#666;margin-bottom:12px;line-height:1.7">
         自分で用意した画像から動くスタンプを作れます（API課金なし）。<br>
         <strong>📷 画像に動きを付ける</strong>＝1枚の絵に「ぷるぷる」「ぴょんぴょん」などの動きを自動で付けます（複数まとめてアップOK）。<br>
-        <strong>🎬 コマ画像でパラパラアニメ</strong>＝自分で描いた複数のコマ画像を、並べた順に再生するアニメにします（2〜20枚）。
+        <strong>🎬 コマ画像でパラパラアニメ</strong>＝自分で描いた複数のコマ画像を、並べた順に再生するアニメにします（2〜20枚）。<br>
+        <strong>✂ 切り抜きからパラパラ</strong>＝「③参考画像」で✂切り抜いてトレイに入れたコマを、そのままパラパラのコマにします。
       </div>
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
         <input type="file" id="ownImgFile" accept="image/*" multiple style="display:none" onchange="onOwnImages(event)">
         <button class="btn btn-primary" id="ownImgBtn" onclick="document.getElementById('ownImgFile').click()">📷 画像に動きを付ける</button>
         <input type="file" id="frameImgFile" accept="image/*" multiple style="display:none" onchange="onFrameImages(event)">
         <button class="btn btn-primary" id="frameImgBtn" onclick="document.getElementById('frameImgFile').click()">🎬 コマ画像でパラパラアニメ</button>
+        <button class="btn btn-primary" id="frameClipsBtn" onclick="addFramesFromClips()" title="「③参考画像」で✂切り抜いてトレイに入れたコマから、パラパラアニメを作ります">✂ 切り抜きからパラパラ</button>
         <label style="font-size:12px;color:#555;display:inline-flex;align-items:center;gap:5px;cursor:pointer" title="外周の白背景だけを透明にします（LINE用・推奨）">
           <input type="checkbox" id="ownBgRemoveChk" checked>
           白い背景を透明にする
@@ -569,7 +572,10 @@
         <div style="flex:1;min-width:230px">
           <label class="form-label">コマ（再生順）</label>
           <div id="framesStrip" style="display:flex;flex-wrap:wrap;gap:8px;max-height:220px;overflow-y:auto"></div>
-          <button class="btn btn-secondary btn-sm" style="margin-top:8px" onclick="document.getElementById('frameImgFile').click()">＋ コマを追加</button>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
+            <button class="btn btn-secondary btn-sm" onclick="document.getElementById('frameImgFile').click()">＋ コマを追加</button>
+            <button class="btn btn-secondary btn-sm" onclick="addFramesFromClips()" title="③で✂切り抜いてトレイに入れたコマを、パラパラのコマとして追加">✂ 切り抜きから追加</button>
+          </div>
           <label class="form-label" style="margin-top:12px">速さ（1回の再生時間）</label>
           <select id="framesSeconds" class="form-select" onchange="setFramesSeconds(this.value)">
             <option value="1">1秒（4ループ）</option>
@@ -2932,6 +2938,36 @@ function closeFrames() {
   if (_frames && _frames.raf) cancelAnimationFrame(_frames.raf);
   _frames = null;
   document.getElementById('framesModal').classList.remove('open');
+}
+
+// 切り抜きトレイ（③で✂したコマ）をパラパラのコマとして追加。モーダルが閉じていれば開く
+async function addFramesFromClips() {
+  const clips = state.clips || [];
+  if (!clips.length) {
+    alert('切り抜きトレイが空です。\n「③ 参考画像」に画像をアップ →「✂ 1コマを切り抜く」→「切り抜きトレイに入れる」でコマを作ってから、もう一度押してください。');
+    return;
+  }
+  const bgRemove = document.getElementById('ownBgRemoveChk') ? document.getElementById('ownBgRemoveChk').checked : true;
+  const isOpen = document.getElementById('framesModal').classList.contains('open');
+  if (!isOpen || !_frames) _frames = { list: [], seconds: 1, raf: 0, t0: performance.now() };
+  let over = false;
+  for (const cl of clips) {
+    if (_frames.list.length >= 20) { over = true; break; }
+    try {
+      let dataUrl = cl.dataUrl;
+      if (bgRemove) dataUrl = await whiteToTransparent(dataUrl);
+      const img = await loadImage(dataUrl);
+      _frames.list.push({ dataUrl, img });
+    } catch (e) { console.warn('切り抜きの取り込みに失敗:', e); }
+  }
+  if (over) alert('コマはLINE規格の上限20枚までです。入りきらない切り抜きは追加しませんでした。');
+  if (!_frames.list.length) { _frames = null; return; }
+  document.getElementById('framesSeconds').value = String(_frames.seconds);
+  renderFramesStrip();
+  if (!isOpen) {
+    document.getElementById('framesModal').classList.add('open');
+    _framesLoop();
+  }
 }
 
 function setFramesSeconds(v) {
