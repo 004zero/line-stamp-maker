@@ -236,7 +236,7 @@
 </head>
 <body>
   <div class="header">
-    <h1>🟢 LINEスタンプメーカー <span style="font-size:10px;font-weight:400;opacity:0.75">v2026.07.06f</span></h1>
+    <h1>🟢 LINEスタンプメーカー <span style="font-size:10px;font-weight:400;opacity:0.75">v2026.07.07a</span></h1>
     <div class="header-actions">
       <span class="api-status" id="apiStatus">API未設定</span>
       <button class="btn btn-secondary btn-sm" onclick="openSettings()">⚙ 設定</button>
@@ -1339,12 +1339,29 @@ async function applyEditDiffToFrames(frameUrls, base, cur) {
   return out;
 }
 
-// 修正モーダル：1枚だけ自動フィット（キャラ検出→標準サイズ・中央へ）
+// 修正モーダル：自動フィット（キャラ検出→標準サイズ・中央へ）
+// パラパラのときは全コマに適用する（1コマ目だけにならないように）
 async function editAutoFit() {
   if (!_edit) return;
+  const cv = _edit.canvas, ctx = _edit.ctx;
+  if (_edit.frames) {
+    // 表示中コマの編集を確定 → 全コマを自動フィット → 表示を更新
+    _edit.frames[_edit.frameIndex] = cv.toDataURL('image/png');
+    for (let k = 0; k < _edit.frames.length; k++) {
+      _edit.frames[k] = b64src(await autoFitImage(_edit.frames[k]));
+    }
+    const img = await loadImage(_edit.frames[_edit.frameIndex]);
+    cv.width = img.naturalWidth; cv.height = img.naturalHeight;
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    ctx.drawImage(img, 0, 0);
+    _edit.history = [];   // キャンバスサイズが変わるため↩の対象外
+    _edit.scaleBase = null;
+    _edit.baseline = ctx.getImageData(0, 0, cv.width, cv.height);
+    renderEditFrameStrip();
+    return;
+  }
   _editSaveHistory();
   _edit.scaleBase = null;
-  const cv = _edit.canvas, ctx = _edit.ctx;
   const b64 = await autoFitImage(cv.toDataURL('image/png'));
   const img = new Image();
   img.onload = () => {
@@ -2029,25 +2046,49 @@ function _bulkBusy(on, label) {
   ['bulkFitBtn', 'bulkBgBtn', 'bulkAllBtn'].forEach(id => { const b = document.getElementById(id); if (b) b.disabled = on; });
   const b = document.getElementById('bulkAllBtn'); if (b && on) b.innerHTML = label || '<span class="spinner"></span>処理中…';
 }
+function _isPara(c) { return !!(c.anim && c.anim.custom && Array.isArray(c.anim.frames) && c.anim.frames.length); }
+
 async function bulkAutoFit() {
   const t = _bulkTargets(); if (!t.length) { alert('完成した画像がありません'); return; }
   _bulkBusy(true);
-  for (const i of t) { state.captions[i].image = await autoFitImage(b64src(state.captions[i].image)); await refreshAnim(i); }
+  for (const i of t) {
+    const c = state.captions[i];
+    if (_isPara(c)) {
+      // パラパラは全コマを揃え直してAPNGも再生成（1コマ目だけにならないように）
+      await processParaFrames(c, async du => b64src(await autoFitImage(du)));
+    } else {
+      c.image = await autoFitImage(b64src(c.image));
+      await refreshAnim(i);
+    }
+  }
   save(); _bulkBusy(false); renderStamps();
 }
 async function bulkRemoveBg() {
   const t = _bulkTargets(); if (!t.length) { alert('完成した画像がありません'); return; }
   _bulkBusy(true);
-  for (const i of t) { const u = await whiteToTransparent(b64src(state.captions[i].image)); state.captions[i].image = u.split(',')[1]; await refreshAnim(i); }
+  for (const i of t) {
+    const c = state.captions[i];
+    if (_isPara(c)) {
+      await processParaFrames(c, async du => await whiteToTransparent(du));
+    } else {
+      const u = await whiteToTransparent(b64src(c.image)); c.image = u.split(',')[1];
+      await refreshAnim(i);
+    }
+  }
   save(); _bulkBusy(false); renderStamps();
 }
 async function bulkFix() {
   const t = _bulkTargets(); if (!t.length) { alert('完成した画像がありません'); return; }
   _bulkBusy(true);
   for (const i of t) {
-    const u = await whiteToTransparent(b64src(state.captions[i].image)); // 背景透明
-    state.captions[i].image = await autoFitImage(u);                     // 大きさ揃え
-    await refreshAnim(i);
+    const c = state.captions[i];
+    if (_isPara(c)) {
+      await processParaFrames(c, async du => b64src(await autoFitImage(await whiteToTransparent(du))));
+    } else {
+      const u = await whiteToTransparent(b64src(c.image)); // 背景透明
+      c.image = await autoFitImage(u);                      // 大きさ揃え
+      await refreshAnim(i);
+    }
   }
   save(); _bulkBusy(false); renderStamps();
 }
@@ -2717,6 +2758,19 @@ async function buildStampApng(imgB64, effectKey, seconds, W, H, playsOverride) {
     if (u8.length <= ANIM_MAX_BYTES) break;
   }
   return { b64: u8ToB64(u8), size: u8.length };
+}
+
+// パラパラ（コマ持ち込み）の全コマに画像処理を適用し、APNG・静止画を作り直す。
+// fn: dataUrl を受け取り、処理後の dataUrl を返す非同期関数
+async function processParaFrames(c, fn) {
+  const newFrames = [];
+  for (const du of c.anim.frames) newFrames.push(await fn(du));
+  const list = [];
+  for (const du of newFrames) list.push({ img: await loadImage(du) });
+  const r = await buildFramesApng(list, c.anim.seconds);
+  c.anim.frames = newFrames;
+  c.anim.apng = r.b64;
+  c.image = newFrames[0].split(',')[1];
 }
 
 // 画像を差し替えたスタンプのアニメを、同じ動きで作り直す
