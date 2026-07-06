@@ -236,7 +236,7 @@
 </head>
 <body>
   <div class="header">
-    <h1>🟢 LINEスタンプメーカー <span style="font-size:10px;font-weight:400;opacity:0.75">v2026.07.06e</span></h1>
+    <h1>🟢 LINEスタンプメーカー <span style="font-size:10px;font-weight:400;opacity:0.75">v2026.07.06f</span></h1>
     <div class="header-actions">
       <span class="api-status" id="apiStatus">API未設定</span>
       <button class="btn btn-secondary btn-sm" onclick="openSettings()">⚙ 設定</button>
@@ -575,6 +575,7 @@
           <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
             <button class="btn btn-secondary btn-sm" onclick="document.getElementById('frameImgFile').click()">＋ コマを追加</button>
             <button class="btn btn-secondary btn-sm" onclick="addFramesFromClips()" title="③で✂切り抜いてトレイに入れたコマを、パラパラのコマとして追加">✂ 切り抜きから追加</button>
+            <button class="btn btn-secondary btn-sm" id="framesFitBtn" onclick="framesAutoFit()" title="各コマのキャラを検出して、全コマ同じ大きさ・中央に揃えます（コマごとの大きさのガタつきを解消）">📐 大きさを整える</button>
           </div>
           <label class="form-label" style="margin-top:12px">速さ（1回の再生時間）</label>
           <select id="framesSeconds" class="form-select" onchange="setFramesSeconds(this.value)">
@@ -2975,6 +2976,28 @@ function setFramesSeconds(v) {
   _frames.seconds = parseInt(v, 10) || 1;
   _frames.t0 = performance.now();
   renderFramesStrip();
+}
+
+// 📐 大きさを整える：各コマのキャラ（不透明部分）を検出し、全コマ同じ大きさ・中央に揃える。
+// 切り抜きごとの余白の違いで、再生時にキャラが大きくなったり小さくなったりするのを解消する。
+async function framesAutoFit() {
+  if (!_frames || !_frames.list.length) return;
+  const btn = document.getElementById('framesFitBtn');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner spinner-dark"></span>整え中…'; }
+  try {
+    for (let k = 0; k < _frames.list.length; k++) {
+      const b64 = await autoFitImage(_frames.list[k].dataUrl); // 740×640の枠にキャラを均一配置
+      const dataUrl = b64src(b64);
+      const img = await loadImage(dataUrl);
+      _frames.list[k] = { dataUrl, img };
+    }
+    _frames.t0 = performance.now(); // プレビューを頭から再生
+    renderFramesStrip();
+  } catch (e) {
+    alert('大きさの調整に失敗しました：' + e.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '📐 大きさを整える'; }
+  }
 }
 
 function moveFrame(i, dir) {
