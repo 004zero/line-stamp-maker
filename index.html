@@ -236,7 +236,7 @@
 </head>
 <body>
   <div class="header">
-    <h1>🟢 LINEスタンプメーカー <span style="font-size:10px;font-weight:400;opacity:0.75">v2026.07.07b</span></h1>
+    <h1>🟢 LINEスタンプメーカー <span style="font-size:10px;font-weight:400;opacity:0.75">v2026.07.07c</span></h1>
     <div class="header-actions">
       <span class="api-status" id="apiStatus">API未設定</span>
       <button class="btn btn-secondary btn-sm" onclick="openSettings()">⚙ 設定</button>
@@ -424,6 +424,24 @@
         </label>
       </div>
       <div style="font-size:11px;color:#888;margin-top:8px">アップした画像は「④スタンプ画像」の一覧に追加されます。🎞ボタンで動きの変更、「🎞 アニメスタンプZIP」でLINE申請用にまとめられます。</div>
+    </div>
+
+    <!-- LINE申請用テキスト -->
+    <div class="card">
+      <div class="card-title"><span class="num">6</span>LINE申請用のタイトル・説明文</div>
+      <div class="hint">
+        <strong>📝 LINE Creators Marketの申請に必要な文言をAIが下書きします</strong>
+        タイトルは<strong>40文字以内</strong>・説明文は<strong>160文字以内</strong>。<strong>英語は必須項目</strong>、日本語やその他の言語も追加できます。できた文をコピーして申請フォームの各言語欄に貼り付けてください。
+      </div>
+      <div class="form-group">
+        <label class="form-label">作る言語（日本語・英語は必須）</label>
+        <div class="tone-row" id="storeLangRow"></div>
+      </div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <button class="btn btn-primary" id="storeTextBtn" onclick="generateStoreTexts()">✨ タイトル・説明文を作る</button>
+        <span style="font-size:11px;color:#888">テーマ・キャラ・セリフをもとに作成します（gpt-4o-mini使用・1回1円未満）</span>
+      </div>
+      <div id="storeTextArea" style="margin-top:14px"></div>
     </div>
   </div>
 
@@ -613,6 +631,8 @@ const state = {
   tabImage: null,   // LINE提出用タブ画像96×74（base64）
   apiEnabled: true, // AI生成(API)を使うか。オフなら切り抜きの直接使用のみ（課金ガード）
   refStrength: 'high', // 'exact' | 'high' | 'medium' | 'low' — how closely to follow the reference
+  storeTextLangs: ['ja', 'en'], // 申請用テキストを作る言語（ja/enは必須）
+  storeTexts: {},               // { ja: {title, description}, en: {...}, ... }
 };
 
 function load() {
@@ -630,6 +650,8 @@ function load() {
     state.clips = [];       // 切り抜きトレイもセッション内のみ（保存しない）
     state.bgRemove = d.bgRemove !== false; // 既定ON
     state.apiEnabled = d.apiEnabled !== false; // 既定ON
+    state.storeTextLangs = Array.isArray(d.storeTextLangs) && d.storeTextLangs.length ? d.storeTextLangs : ['ja', 'en'];
+    state.storeTexts = d.storeTexts || {};
     state.captions  = (d.captions || []).map(c => ({
       text: c.text || '',
       emotion: c.emotion || '',
@@ -666,6 +688,8 @@ function save() {
       refStrength: state.refStrength,
       bgRemove: state.bgRemove,
       apiEnabled: state.apiEnabled,
+      storeTextLangs: state.storeTextLangs,
+      storeTexts: state.storeTexts,
       captions: lightCaptions,
     }));
   } catch (e) {
@@ -3260,6 +3284,150 @@ async function buildMainApng(mc) {
   return buildStampApng(mc.image, mc.anim.effect, mc.anim.seconds, 240, 240);
 }
 
+// ===== ⑥ LINE申請用テキスト（タイトル40字・説明文160字／多言語） =====
+const STORE_LANGS = [
+  { key: 'ja', label: '日本語', name: '日本語', required: true },
+  { key: 'en', label: '英語', name: 'English', required: true },
+  { key: 'zh-TW', label: '中国語（繁体字）', name: '中文（繁體）' },
+  { key: 'zh-CN', label: '中国語（簡体字）', name: '中文（简体）' },
+  { key: 'ko', label: '韓国語', name: '한국어' },
+  { key: 'th', label: 'タイ語', name: 'ไทย' },
+  { key: 'id', label: 'インドネシア語', name: 'Bahasa Indonesia' },
+  { key: 'es', label: 'スペイン語', name: 'Español' },
+  { key: 'pt-BR', label: 'ポルトガル語（ブラジル）', name: 'Português' },
+];
+const STORE_TITLE_MAX = 40, STORE_DESC_MAX = 160;
+function _countChars(s) { return [...(s || '')].length; } // サロゲートペアも1文字で数える
+
+function renderStoreLangPills() {
+  const row = document.getElementById('storeLangRow');
+  if (!row) return;
+  row.innerHTML = STORE_LANGS.map(l => {
+    const on = (state.storeTextLangs || []).includes(l.key);
+    return `<div class="radio-pill ${on ? 'active' : ''}" style="${l.required ? 'opacity:0.75;cursor:default' : ''}" onclick="toggleStoreLang('${l.key}')" title="${l.required ? '必須（外せません）' : ''}">${l.label}${l.required ? '★' : ''}</div>`;
+  }).join('');
+}
+
+function toggleStoreLang(k) {
+  const def = STORE_LANGS.find(l => l.key === k);
+  if (!def || def.required) return;
+  if (!Array.isArray(state.storeTextLangs)) state.storeTextLangs = ['ja', 'en'];
+  const i = state.storeTextLangs.indexOf(k);
+  if (i >= 0) state.storeTextLangs.splice(i, 1); else state.storeTextLangs.push(k);
+  save();
+  renderStoreLangPills();
+  renderStoreTexts();
+}
+
+async function generateStoreTexts() {
+  if (!state.apiKey) { alert('OpenAI APIキーを設定してください'); openSettings(); return; }
+  if (!state.theme.trim() && !state.captions.length) { alert('先に「① テーマ」を入力するか、セリフ案を作ってください'); return; }
+  const langs = STORE_LANGS.filter(l => (state.storeTextLangs || []).includes(l.key));
+  const btn = document.getElementById('storeTextBtn');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>作成中…';
+  try {
+    const hasAnim = state.captions.some(c => c.anim);
+    const phrases = state.captions.map(c => c.text).filter(Boolean).slice(0, 16);
+    const sys = `あなたはLINEスタンプを販売するためのストア文言（タイトル・説明文）を作るプロのコピーライターです。
+出力は必ずJSON：{"texts":[{"lang":"言語コード","title":"タイトル","description":"説明文"}, ...]}
+厳守ルール：
+- title はその言語で必ず${STORE_TITLE_MAX}文字以内。短くキャッチーに。キャラ名やテーマが伝わるように。
+- description はその言語で必ず${STORE_DESC_MAX}文字以内。誰が・どんな場面で使えるか、キャラの魅力、${hasAnim ? '動くスタンプであること、' : ''}を自然に伝える。
+- 絵文字・機種依存文字・「LINE」という単語・過度な記号は使わない。
+- 各言語は直訳ではなく、その言語圏のストアで自然に見える表現にローカライズする。
+- 実在の商標・有名キャラクター名は使わない。`;
+    const usr = `スタンプの情報：
+テーマ：${state.theme || '（未入力）'}
+キャラクター設定：${state.character || '（指定なし）'}
+種類：${hasAnim ? 'アニメーションスタンプ（動くスタンプ）' : '静止画スタンプ'}
+収録セリフの例：${phrases.join('、') || '（なし）'}
+
+次の言語すべてで作ってください：
+${langs.map(l => `- ${l.key}（${l.label}）`).join('\n')}`;
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${state.apiKey}` },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [{ role: 'system', content: sys }, { role: 'user', content: usr }],
+        response_format: { type: 'json_object' },
+        temperature: 0.8,
+      }),
+    });
+    if (!res.ok) throw new Error(`API error ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    const data = await res.json();
+    const parsed = JSON.parse(data.choices[0].message.content);
+    const texts = parsed.texts || [];
+    if (!Array.isArray(texts) || !texts.length) throw new Error('文言の取得に失敗しました');
+    for (const t of texts) {
+      if (!t.lang) continue;
+      state.storeTexts[t.lang] = { title: (t.title || '').trim(), description: (t.description || '').trim() };
+    }
+    save();
+    renderStoreTexts();
+  } catch (e) {
+    alert('タイトル・説明文の作成に失敗しました：\n' + e.message);
+  } finally {
+    btn.disabled = false; btn.innerHTML = '✨ タイトル・説明文を作る';
+  }
+}
+
+function updateStoreText(lang, field, value) {
+  if (!state.storeTexts[lang]) state.storeTexts[lang] = { title: '', description: '' };
+  state.storeTexts[lang][field] = value;
+  save();
+  // カウンターだけ更新（全再描画すると入力中のフォーカスが飛ぶため）
+  const el = document.getElementById(`stCount-${lang}-${field}`);
+  if (el) {
+    const max = field === 'title' ? STORE_TITLE_MAX : STORE_DESC_MAX;
+    const n = _countChars(value);
+    el.textContent = `${n}/${max}`;
+    el.style.color = n > max ? '#c0392b' : '#888';
+    el.style.fontWeight = n > max ? '700' : '400';
+  }
+}
+
+async function copyStoreText(lang, field, btn) {
+  const t = (state.storeTexts[lang] || {})[field] || '';
+  if (!t) return;
+  try {
+    await navigator.clipboard.writeText(t);
+  } catch (e) {
+    // 古いブラウザ用フォールバック
+    const ta = document.createElement('textarea');
+    ta.value = t; document.body.appendChild(ta); ta.select();
+    document.execCommand('copy'); document.body.removeChild(ta);
+  }
+  if (btn) { const orig = btn.textContent; btn.textContent = '✓ コピー済'; setTimeout(() => { btn.textContent = orig; }, 1200); }
+}
+
+function renderStoreTexts() {
+  const area = document.getElementById('storeTextArea');
+  if (!area) return;
+  const langs = STORE_LANGS.filter(l => (state.storeTextLangs || []).includes(l.key));
+  const hasAny = langs.some(l => state.storeTexts[l.key] && (state.storeTexts[l.key].title || state.storeTexts[l.key].description));
+  if (!hasAny) { area.innerHTML = ''; return; }
+  area.innerHTML = langs.map(l => {
+    const t = state.storeTexts[l.key] || { title: '', description: '' };
+    const tn = _countChars(t.title), dn = _countChars(t.description);
+    return `<div style="border:1.5px solid #e3f0e8;border-radius:8px;padding:12px 14px;margin-bottom:10px;background:#fafdfb">
+      <div style="font-size:13px;font-weight:800;color:#06c755;margin-bottom:8px">${l.label} <span style="font-weight:400;color:#888;font-size:11px">(${l.name})</span></div>
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+        <label style="font-size:11px;font-weight:700;color:#555;flex-shrink:0;width:52px">タイトル</label>
+        <input type="text" class="form-input" style="flex:1" value="${escAttr(t.title)}" oninput="updateStoreText('${l.key}','title',this.value)">
+        <span id="stCount-${l.key}-title" style="font-size:11px;flex-shrink:0;${tn > STORE_TITLE_MAX ? 'color:#c0392b;font-weight:700' : 'color:#888'}">${tn}/${STORE_TITLE_MAX}</span>
+        <button class="btn btn-secondary btn-sm" onclick="copyStoreText('${l.key}','title',this)">📋</button>
+      </div>
+      <div style="display:flex;align-items:flex-start;gap:6px">
+        <label style="font-size:11px;font-weight:700;color:#555;flex-shrink:0;width:52px;padding-top:9px">説明文</label>
+        <textarea class="form-textarea" style="flex:1;min-height:56px" oninput="updateStoreText('${l.key}','description',this.value)">${escHtml(t.description)}</textarea>
+        <span id="stCount-${l.key}-description" style="font-size:11px;flex-shrink:0;padding-top:9px;${dn > STORE_DESC_MAX ? 'color:#c0392b;font-weight:700' : 'color:#888'}">${dn}/${STORE_DESC_MAX}</span>
+        <button class="btn btn-secondary btn-sm" onclick="copyStoreText('${l.key}','description',this)">📋</button>
+      </div>
+    </div>`;
+  }).join('') + `<div style="font-size:11px;color:#888">💡 文字数が赤い場合はLINEに登録できません。手で短く直すか、もう一度「✨作る」を押してください。内容は自由に書き換えOK・自動保存されます。</div>`;
+}
+
 // ===== ポップアップスタンプ（画面全体に大きく表示）書き出し =====
 // LINE規格：スタンプ画像=静止PNG(370×320以内) ＋ ポップアップ画像=APNG(480×480以内・一辺480px必須)
 // 5〜20フレーム・合計3秒以内・ループ1〜3回
@@ -3390,6 +3558,7 @@ async function idbSaveSet(name) {
     savedAt: new Date().toISOString(),
     theme: state.theme, character: state.character, style: state.style,
     count: state.count, tones: state.tones, refStrength: state.refStrength,
+    storeTextLangs: state.storeTextLangs, storeTexts: state.storeTexts,
     refImages: (state.refImages || []).map(im => ({ name: im.name, dataUrl: im.dataUrl })),
     captions: state.captions.map(c => ({
       text: c.text, emotion: c.emotion, composition: c.composition,
@@ -3490,6 +3659,8 @@ async function loadSet(id) {
   state.count = s.count || 8;
   state.tones = Array.isArray(s.tones) ? s.tones : ['casual'];
   state.refStrength = s.refStrength || 'high';
+  state.storeTextLangs = Array.isArray(s.storeTextLangs) && s.storeTextLangs.length ? s.storeTextLangs : state.storeTextLangs;
+  state.storeTexts = s.storeTexts || state.storeTexts || {};
   // Restore ref images (dataUrl only — convert back to blob for re-use in API calls)
   state.refImages = [];
   const savedRefs = s.refImages
@@ -3514,6 +3685,8 @@ async function loadSet(id) {
   renderCaptions();
   renderStamps();
   refreshSaveBtn();
+  renderStoreLangPills();
+  renderStoreTexts();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
@@ -3606,6 +3779,8 @@ renderLineImages();
 renderHistory();
 refreshSaveBtn();
 refreshFolderBtn();
+renderStoreLangPills();
+renderStoreTexts();
 if (!state.apiKey) openSettings();
 </script>
 </body>
