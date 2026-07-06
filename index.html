@@ -236,7 +236,7 @@
 </head>
 <body>
   <div class="header">
-    <h1>🟢 LINEスタンプメーカー <span style="font-size:10px;font-weight:400;opacity:0.75">v2026.07.07c</span></h1>
+    <h1>🟢 LINEスタンプメーカー <span style="font-size:10px;font-weight:400;opacity:0.75">v2026.07.07d</span></h1>
     <div class="header-actions">
       <span class="api-status" id="apiStatus">API未設定</span>
       <button class="btn btn-secondary btn-sm" onclick="openSettings()">⚙ 設定</button>
@@ -593,7 +593,7 @@
           <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
             <button class="btn btn-secondary btn-sm" onclick="document.getElementById('frameImgFile').click()">＋ コマを追加</button>
             <button class="btn btn-secondary btn-sm" onclick="addFramesFromClips()" title="③で✂切り抜いてトレイに入れたコマを、パラパラのコマとして追加">✂ 切り抜きから追加</button>
-            <button class="btn btn-secondary btn-sm" id="framesFitBtn" onclick="framesAutoFit()" title="各コマのキャラを検出して、全コマ同じ大きさ・中央に揃えます（コマごとの大きさのガタつきを解消）">📐 大きさを整える</button>
+            <button class="btn btn-secondary btn-sm" id="framesFitBtn" onclick="framesAutoFit()" title="切り抜きの大きさ・位置がバラバラでも、キャラの縮尺は変えずに全コマの位置とサイズを揃えます（再生時のガタつきを解消）">📐 大きさを整える</button>
           </div>
           <label class="form-label" style="margin-top:12px">速さ（1回の再生時間）</label>
           <select id="framesSeconds" class="form-select" onchange="setFramesSeconds(this.value)">
@@ -2841,11 +2841,34 @@ async function autoFitFramesUniform(dataUrls) {
   return out;
 }
 
-// パラパラ用の自動フィット：同サイズのコマ→共通枠（キャラの大きさ一定）、
-// サイズ混在（切り抜き等）→従来どおり1コマずつフィット（大きさを揃える）
+// サイズがバラバラのコマ（手で切り抜いたコマ等）を、「拡大縮小せずに」同じキャンバスへ揃える。
+// 各コマの内容（不透明部分）の中心をキャンバス中央に置くので、切り抜き枠のズレも補正される。
+// 同じシートから切り抜いたコマは元の縮尺が同じ＝キャラの大きさを保ったまま同サイズにできる。
+async function padFramesToCommonSize(dataUrls) {
+  const infos = [];
+  for (const du of dataUrls) infos.push(charInfo(await loadImage(du)));
+  const maxW = Math.max(...infos.map(o => o.bw));
+  const maxH = Math.max(...infos.map(o => o.bh));
+  const W = maxW + 8, H = maxH + 8;
+  return infos.map(o => {
+    const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+    const ctx = cv.getContext('2d');
+    ctx.drawImage(o.img, o.bx, o.by, o.bw, o.bh, Math.round((W - o.bw) / 2), Math.round((H - o.bh) / 2), o.bw, o.bh);
+    return cv.toDataURL('image/png');
+  });
+}
+
+// パラパラ用の自動フィット：
+// ① 同サイズのコマ → そのまま共通枠フィット（キャラの大きさ一定）
+// ② サイズ混在（切り抜き等）→ 拡大縮小せず同サイズに揃えてから共通枠フィット
+//    （切り抜きの大きさ・位置がバラバラでもキャラの縮尺は変わらない）
 async function paraAutoFitAll(frames) {
-  const uni = await autoFitFramesUniform(frames);
+  let uni = await autoFitFramesUniform(frames);
   if (uni) return uni;
+  const padded = await padFramesToCommonSize(frames);
+  uni = await autoFitFramesUniform(padded);
+  if (uni) return uni;
+  // 念のためのフォールバック（全コマ透明など特殊ケース）
   const out = [];
   for (const du of frames) out.push(b64src(await autoFitImage(du)));
   return out;
