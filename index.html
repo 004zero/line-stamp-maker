@@ -236,7 +236,7 @@
 </head>
 <body>
   <div class="header">
-    <h1>🟢 LINEスタンプメーカー <span style="font-size:10px;font-weight:400;opacity:0.75">v2026.07.07h</span></h1>
+    <h1>🟢 LINEスタンプメーカー <span style="font-size:10px;font-weight:400;opacity:0.75">v2026.07.07i</span></h1>
     <div class="header-actions">
       <span class="api-status" id="apiStatus">API未設定</span>
       <button class="btn btn-secondary btn-sm" onclick="openSettings()">⚙ 設定</button>
@@ -3465,9 +3465,10 @@ async function generateStoreTexts() {
     const phrases = state.captions.map(c => c.text).filter(Boolean).slice(0, 16);
     const sys = `あなたはLINEスタンプを販売するためのストア文言（タイトル・説明文）を作るプロのコピーライターです。
 出力は必ずJSON：{"texts":[{"lang":"言語コード","title":"タイトル","description":"説明文"}, ...]}
-厳守ルール：
+厳守ルール（文字数は最優先・1文字でも超えたら不合格）：
 - title はその言語で必ず${STORE_TITLE_MAX}文字以内。短くキャッチーに。キャラ名やテーマが伝わるように。
 - description はその言語で必ず${STORE_DESC_MAX}文字以内。誰が・どんな場面で使えるか、キャラの魅力、${hasAnim ? '動くスタンプであること、' : ''}を自然に伝える。
+- 英語・スペイン語・ポルトガル語など横書き言語は文字数が長くなりやすいので、余裕をもって短め（説明文は${Math.round(STORE_DESC_MAX * 0.8)}文字程度）にまとめること。書き終えたら必ず文字数を数え直し、超えていたら削る。
 - 絵文字・機種依存文字・「LINE」という単語・過度な記号は使わない。
 - 各言語は直訳ではなく、その言語圏のストアで自然に見える表現にローカライズする。
 - 実在の商標・有名キャラクター名は使わない。`;
@@ -3498,6 +3499,7 @@ ${langs.map(l => `- ${l.key}（${l.label}）`).join('\n')}`;
       if (!t.lang) continue;
       state.storeTexts[t.lang] = { title: (t.title || '').trim(), description: (t.description || '').trim() };
     }
+    await enforceStoreLimits(langs); // 文字数オーバーを自動で詰める
     save();
     renderStoreTexts();
   } catch (e) {
@@ -3505,6 +3507,54 @@ ${langs.map(l => `- ${l.key}（${l.label}）`).join('\n')}`;
   } finally {
     btn.disabled = false; btn.innerHTML = '✨ タイトル・説明文を作る';
   }
+}
+
+// 文字数上限を超えたテキストだけAIで短く書き直す。2周してもダメなら安全に切り詰める。
+async function enforceStoreLimits(langs) {
+  const btn = document.getElementById('storeTextBtn');
+  for (let round = 0; round < 2; round++) {
+    const over = [];
+    for (const l of langs) {
+      const t = state.storeTexts[l.key]; if (!t) continue;
+      if (_countChars(t.title) > STORE_TITLE_MAX) over.push({ key: l.key, field: 'title', max: STORE_TITLE_MAX, text: t.title, lang: l.label });
+      if (_countChars(t.description) > STORE_DESC_MAX) over.push({ key: l.key, field: 'description', max: STORE_DESC_MAX, text: t.description, lang: l.label });
+    }
+    if (!over.length) return;
+    if (btn) btn.innerHTML = '<span class="spinner"></span>文字数を調整中…';
+    try {
+      const sys = `次の各テキストを、指定の文字数（maxChars）以内に自然におさまるよう、同じ言語のまま短く書き直してください。意味や魅力はできるだけ保ちつつ、必ずmaxChars以下にすること（1文字でも超えないよう、書いたあと数え直して削る）。出力は必ずJSON：{"items":[{"id":0,"text":"..."}, ...]}`;
+      const usr = JSON.stringify({ items: over.map((o, i) => ({ id: i, lang: o.lang, maxChars: o.max, text: o.text })) });
+      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${state.apiKey}` },
+        body: JSON.stringify({ model: 'gpt-4o-mini', messages: [{ role: 'system', content: sys }, { role: 'user', content: usr }], response_format: { type: 'json_object' }, temperature: 0.4 }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const items = (JSON.parse(data.choices[0].message.content).items) || [];
+        for (const it of items) {
+          const o = over[it.id];
+          if (o && it.text) state.storeTexts[o.key][o.field] = String(it.text).trim();
+        }
+      }
+    } catch (e) { console.warn('文字数調整に失敗:', e); }
+  }
+  // 2周しても超過が残ったら、区切りのよい位置で安全に切り詰める（確実に上限内に収める）
+  for (const l of langs) {
+    const t = state.storeTexts[l.key]; if (!t) continue;
+    if (_countChars(t.title) > STORE_TITLE_MAX) t.title = hardTrimToLimit(t.title, STORE_TITLE_MAX);
+    if (_countChars(t.description) > STORE_DESC_MAX) t.description = hardTrimToLimit(t.description, STORE_DESC_MAX);
+  }
+}
+
+// max文字以内に、なるべく文や単語の区切りで切り詰める。必ずmax以下になる。
+function hardTrimToLimit(text, max) {
+  const arr = [...(text || '')];
+  if (arr.length <= max) return text;
+  let cut = arr.slice(0, max).join('');
+  const m = cut.match(/^[\s\S]*[。．.!！?？、,・\s]/); // 手前の区切りまで戻す
+  if (m && [...m[0]].length >= max * 0.6) cut = m[0];
+  return cut.replace(/[、,・\s]+$/, '').trim();
 }
 
 function updateStoreText(lang, field, value) {
