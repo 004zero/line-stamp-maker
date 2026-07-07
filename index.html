@@ -236,7 +236,7 @@
 </head>
 <body>
   <div class="header">
-    <h1>🟢 LINEスタンプメーカー <span style="font-size:10px;font-weight:400;opacity:0.75">v2026.07.07n</span></h1>
+    <h1>🟢 LINEスタンプメーカー <span style="font-size:10px;font-weight:400;opacity:0.75">v2026.07.07o</span></h1>
     <div class="header-actions">
       <span class="api-status" id="apiStatus">API未設定</span>
       <button class="btn btn-secondary btn-sm" onclick="openSettings()">⚙ 設定</button>
@@ -347,6 +347,7 @@
           <input type="file" id="refFileAny" multiple onchange="onRefFile(event)">
           <button class="btn btn-secondary btn-sm" onclick="document.getElementById('refFile').click()" title="写真アプリから選ぶ（AndroidはGoogleフォト、iPhoneは写真）">📷 写真から選ぶ</button>
           <button class="btn btn-secondary btn-sm" onclick="document.getElementById('refFileAny').click()" title="スマホ本体・ダウンロード・iCloud・SDカードなどから選ぶ">📂 ファイルから選ぶ</button>
+          <button class="btn btn-primary btn-sm" onclick="openRefLibrary()" title="これまでに作って「⭐保存」したスタンプ画像から、参考画像を選ぶ">📁 保存した画像から選ぶ</button>
           <button class="btn btn-secondary btn-sm" onclick="openCropFromRef()" id="refCropBtn" style="display:none">✂ 1コマを切り抜く</button>
           <button class="btn btn-danger btn-sm" onclick="clearRefImage()" id="refClearBtn" style="display:none">✕ 解除</button>
         </div>
@@ -598,6 +599,19 @@
       <div id="clipPickerGrid" style="display:flex;flex-wrap:wrap;gap:10px;max-height:50vh;overflow-y:auto"></div>
       <div class="modal-actions">
         <button class="btn btn-secondary" onclick="closeClipPicker()">閉じる</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- マイ画像／保存セットから参考画像を選ぶ -->
+  <div class="modal-bg" id="refPickerModal">
+    <div class="modal" style="max-width:640px">
+      <h2 id="refPickerTitle">📁 保存した画像から参考画像を選ぶ</h2>
+      <div class="note" style="margin-top:0;margin-bottom:12px">使いたい画像を<strong>クリック</strong>すると「③ 参考画像」に追加されます（複数OK）。追加した画像を元に、新しいセリフ・新しいスタンプを作れます。</div>
+      <div id="refPickerGrid" style="display:flex;flex-wrap:wrap;gap:12px;max-height:55vh;overflow-y:auto"></div>
+      <div id="refPickerEmpty" style="display:none;color:#888;font-size:13px;padding:14px;text-align:center"></div>
+      <div class="modal-actions">
+        <button class="btn btn-primary" onclick="closeRefPicker()">✔ 完了</button>
       </div>
     </div>
   </div>
@@ -942,6 +956,39 @@ async function addRefImageFromFile(file) {
     state.refImages.push({ name: (file.name || 'image').replace(/\.[^.]+$/, '') + '.png', dataUrl, blob });
     renderRefImage();
   } catch (e) { alert(e.message); }
+}
+
+// dataUrl（base64画像）を参考画像に追加する共通処理。追加できたら true
+async function addRefFromDataUrl(dataUrl, name) {
+  if ((state.refImages || []).length >= MAX_REF_IMAGES) { alert(`参考画像は最大${MAX_REF_IMAGES}枚までです。いらない参考画像を外してから追加してください。`); return false; }
+  try {
+    const blob = await (await fetch(dataUrl)).blob();
+    state.refImages.push({ name: (name || 'image').replace(/\.[^.]+$/, '') + '.png', dataUrl, blob });
+    renderRefImage();
+    return true;
+  } catch (e) { alert('参考画像への追加に失敗しました：' + e.message); return false; }
+}
+
+// ④のスタンプ画像を「参考画像」に使う（このキャラで新しいスタンプを作る用）
+async function useStampAsRef(i) {
+  const c = state.captions[i];
+  if (!c || !c.image) { alert('先に画像を作成してください'); return; }
+  const ok = await addRefFromDataUrl(b64src(c.image), c.text || 'stamp');
+  if (ok) {
+    if (state.refStrength === 'low' || state.refStrength === 'medium') { state.refStrength = 'high'; const rs = document.getElementById('refStrengthSelect'); if (rs) rs.value = 'high'; save(); }
+    document.querySelector('.ref-zone').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    alert('✓「③ 参考画像」に追加しました。\nこのキャラをベースに、新しいセリフ・新しいスタンプを作れます（テーマやセリフを変えて生成してください）。');
+  }
+}
+
+// ④のスタンプ画像を「マイ画像」に1枚だけ保存（あとで参考画像に呼び出せる）
+async function saveStampToLibrary(i) {
+  const c = state.captions[i];
+  if (!c || !c.image) { alert('先に画像を作成してください'); return; }
+  try {
+    await idbSaveImage(c.text || 'スタンプ', b64src(c.image));
+    alert('✓「マイ画像」に保存しました。\n「③ 参考画像」の「📁 保存した画像から選ぶ」から、いつでも呼び出して参考画像に使えます。');
+  } catch (e) { alert('保存に失敗しました：' + e.message); }
 }
 
 function clearRefImage() {
@@ -2867,6 +2914,8 @@ function renderStamps() {
         <button class="btn btn-secondary btn-sm" onclick="openClipPicker(${i})" title="切り抜きトレイから選んで割り当て">✂</button>
         ${c.image ? `<button class="btn btn-secondary btn-sm" onclick="openAnim(${i})" title="アニメ化（動くスタンプにする）">🎞</button>` : ''}
         ${c.image ? `<button class="btn btn-secondary btn-sm" onclick="openEdit(${i})" title="修正（消しゴム・ペン）">🖊</button>` : ''}
+        ${c.image ? `<button class="btn btn-secondary btn-sm" onclick="useStampAsRef(${i})" title="この画像を「参考画像」に使って新しいスタンプを作る">🖼→</button>` : ''}
+        ${c.image ? `<button class="btn btn-secondary btn-sm" onclick="saveStampToLibrary(${i})" title="この画像を「マイ画像」に1枚だけ保存（あとで参考画像に呼び出せる）">⭐</button>` : ''}
         ${c.image ? `<button class="btn btn-secondary btn-sm" onclick="downloadOne(${i})" title="ダウンロード">⬇</button>` : ''}
         <button class="btn btn-danger btn-sm" onclick="deleteStamp(${i})" title="このスタンプを削除">🗑</button>
       </div>
@@ -4156,14 +4205,106 @@ let _idb = null;
 function idbInit() {
   if (_idb) return Promise.resolve(_idb);
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open('lineStampMakerDB', 1);
+    const req = indexedDB.open('lineStampMakerDB', 2);
     req.onupgradeneeded = e => {
       const db = e.target.result;
       if (!db.objectStoreNames.contains('sets')) db.createObjectStore('sets', { keyPath: 'id' });
+      if (!db.objectStoreNames.contains('images')) db.createObjectStore('images', { keyPath: 'id' }); // 1枚ずつ保存する「マイ画像」
     };
     req.onsuccess = () => { _idb = req.result; resolve(_idb); };
     req.onerror = () => reject(req.error);
   });
+}
+// ===== マイ画像（1枚ずつ保存・参考画像に呼び出せる）=====
+async function idbSaveImage(name, dataUrl) {
+  const db = await idbInit();
+  const rec = { id: Date.now() + Math.floor(performance.now() % 1000), name: name || '画像', dataUrl, savedAt: new Date().toISOString() };
+  return new Promise((res, rej) => {
+    const tx = db.transaction('images', 'readwrite');
+    tx.objectStore('images').put(rec);
+    tx.oncomplete = () => res(rec);
+    tx.onerror = () => rej(tx.error);
+  });
+}
+async function idbListImages() {
+  const db = await idbInit();
+  return new Promise((res, rej) => {
+    const tx = db.transaction('images', 'readonly');
+    const req = tx.objectStore('images').getAll();
+    req.onsuccess = () => res(req.result.sort((a, b) => b.id - a.id));
+    req.onerror = () => rej(req.error);
+  });
+}
+async function idbDeleteImage(id) {
+  const db = await idbInit();
+  return new Promise((res, rej) => {
+    const tx = db.transaction('images', 'readwrite');
+    tx.objectStore('images').delete(id);
+    tx.oncomplete = () => res();
+    tx.onerror = () => rej(tx.error);
+  });
+}
+
+// ===== 参考画像ピッカー（マイ画像 or 保存セットの画像から選ぶ）=====
+let _refPickerItems = null; // [{ src, name, libId? }]
+function _renderRefPicker() {
+  const grid = document.getElementById('refPickerGrid');
+  const empty = document.getElementById('refPickerEmpty');
+  const items = _refPickerItems || [];
+  if (!items.length) {
+    grid.innerHTML = '';
+    empty.style.display = 'block';
+    empty.textContent = 'まだ画像がありません。スタンプの ⭐ ボタンで「マイ画像」に保存すると、ここから選べます。';
+    return;
+  }
+  empty.style.display = 'none';
+  grid.innerHTML = items.map((it, idx) => `
+    <div style="width:110px;text-align:center;position:relative">
+      <div style="width:110px;height:110px;border:2px solid #ddd;border-radius:8px;overflow:hidden;background:repeating-conic-gradient(#f5f5f5 0% 25%, #fff 0% 50%) 50% / 12px 12px;display:flex;align-items:center;justify-content:center;cursor:pointer" onclick="pickRefPickerImage(${idx}, this)" title="クリックで参考画像に追加">
+        <img src="${it.src}" style="max-width:100%;max-height:100%;object-fit:contain">
+      </div>
+      <div style="font-size:10px;color:#666;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(it.name || '')}</div>
+      ${it.libId != null ? `<button class="ref-thumb-x" style="top:-6px;right:6px" onclick="deleteRefLibImage(${it.libId})" title="マイ画像から削除">✕</button>` : ''}
+    </div>`).join('');
+}
+async function openRefLibrary() {
+  let imgs;
+  try { imgs = await idbListImages(); } catch (e) { alert('保存した画像の読み込みに失敗：' + e.message); return; }
+  _refPickerItems = imgs.map(im => ({ src: im.dataUrl, name: im.name, libId: im.id }));
+  document.getElementById('refPickerTitle').textContent = '📁 保存した画像（マイ画像）から選ぶ';
+  _renderRefPicker();
+  document.getElementById('refPickerModal').classList.add('open');
+}
+async function useSetAsRef(id) {
+  let s;
+  try { s = await idbGetSet(id); } catch (e) { alert('セットの読み込みに失敗：' + e.message); return; }
+  if (!s) return;
+  const items = [];
+  (s.refImages || []).forEach((r, i) => { if (r && r.dataUrl) items.push({ src: r.dataUrl, name: (r.name || '元の参考' + (i + 1)) }); });
+  (s.captions || []).forEach((c, i) => { if (c && c.image) items.push({ src: 'data:image/png;base64,' + c.image, name: c.text || ('スタンプ' + (i + 1)) }); });
+  if (!items.length) { alert('このセットには使える画像がありません。'); return; }
+  _refPickerItems = items;
+  document.getElementById('refPickerTitle').textContent = `🖼「${s.name}」の画像から参考画像を選ぶ`;
+  _renderRefPicker();
+  document.getElementById('refPickerModal').classList.add('open');
+}
+async function pickRefPickerImage(idx, el) {
+  const it = _refPickerItems && _refPickerItems[idx];
+  if (!it) return;
+  const ok = await addRefFromDataUrl(it.src, it.name);
+  if (ok && el) { el.style.outline = '3px solid #06c755'; el.style.outlineOffset = '2px'; }
+}
+async function deleteRefLibImage(libId) {
+  if (!confirm('この画像を「マイ画像」から削除しますか？')) return;
+  try {
+    await idbDeleteImage(libId);
+    _refPickerItems = (_refPickerItems || []).filter(it => it.libId !== libId);
+    _renderRefPicker();
+  } catch (e) { alert('削除に失敗しました：' + e.message); }
+}
+function closeRefPicker() {
+  document.getElementById('refPickerModal').classList.remove('open');
+  _refPickerItems = null;
 }
 async function idbSaveSet(name) {
   const db = await idbInit();
@@ -4320,7 +4461,8 @@ async function renderHistory() {
       <div class="history-name" title="${escAttr(s.name)}">${escHtml(s.name)}</div>
       <div class="history-meta">${dones}/${s.captions.length}枚・${date}</div>
       <div class="history-actions">
-        <button class="btn btn-secondary" onclick="loadSet(${s.id})" title="復元">📂</button>
+        <button class="btn btn-secondary" onclick="useSetAsRef(${s.id})" title="このセットの画像を「参考画像」に使って、新しいスタンプを作る">🖼→</button>
+        <button class="btn btn-secondary" onclick="loadSet(${s.id})" title="このセットを開いて続きを編集（今の作業は消えます）">📂</button>
         <button class="btn btn-danger" onclick="deleteSet(${s.id})" title="削除">🗑</button>
       </div>
     </div>`;
