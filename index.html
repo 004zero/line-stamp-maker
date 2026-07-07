@@ -236,7 +236,7 @@
 </head>
 <body>
   <div class="header">
-    <h1>🟢 LINEスタンプメーカー <span style="font-size:10px;font-weight:400;opacity:0.75">v2026.07.07l</span></h1>
+    <h1>🟢 LINEスタンプメーカー <span style="font-size:10px;font-weight:400;opacity:0.75">v2026.07.07m</span></h1>
     <div class="header-actions">
       <span class="api-status" id="apiStatus">API未設定</span>
       <button class="btn btn-secondary btn-sm" onclick="openSettings()">⚙ 設定</button>
@@ -517,7 +517,7 @@
   <div class="modal-bg" id="editModal">
     <div class="modal" style="max-width:640px">
       <h2>🖊 スタンプを修正</h2>
-      <div class="note" style="margin-top:0;margin-bottom:10px">🩹 消しゴム／🖊 ペン／💧 スポイト＝色を拾う／🪄 自動選択＝<strong>同じ色のかたまりをクリックで即消す</strong>／⭕ なげなわ＝囲んだ範囲を消す／🎯 範囲選択＝<strong>同じ色の範囲を選んで、📋コピー・🎨色替え・🗑削除ができる</strong>。透明部分は市松模様で表示されます。</div>
+      <div class="note" style="margin-top:0;margin-bottom:10px">🩹 消しゴム／🖊 ペン／💧 スポイト＝色を拾う／🪄 自動選択＝<strong>同じ色のかたまりをクリックで即消す</strong>／⭕ なげなわ＝囲んだ範囲を消す／🎯 範囲選択＝<strong>同じ色の範囲を選んで、📋コピー・🎨色替え・🗑削除ができる</strong>（パソコンは<strong>Shiftキーを押しながらクリックで範囲を追加</strong>）。透明部分は市松模様で表示されます。</div>
       <div class="note" id="editParaNote" style="display:none;margin-top:0;margin-bottom:8px;background:#f3ecfd;border-left:3px solid #7b3fbf;color:#5a3d85">🎞 パラパラアニメ：下の<strong>コマ一覧から選んで、1コマずつ</strong>修正できます。消しゴム・ペンの修正を全部のコマにコピーしたいときは「⧉ 全コマへ反映」。</div>
       <div id="editFrameStrip" style="display:none;flex-wrap:wrap;gap:6px;margin-bottom:10px;align-items:flex-start"></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
@@ -540,12 +540,17 @@
       <div id="editSelPanel" style="display:none;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px;background:#eef7ff;border:1px solid #cfe6ff;border-radius:7px;padding:8px 10px">
         <span style="font-size:12px;font-weight:700;color:#0a66c2">🎯 選択中：</span>
         <button class="btn btn-secondary btn-sm" onclick="editSelCopy()" title="選んだ部分をコピー">📋 コピー</button>
-        <button class="btn btn-secondary btn-sm" onclick="editSelRecolor()" title="右上の「色」で選んだ色に塗り替え（明るさ・影は保つ）">🎨 選んだ色に変える</button>
+        <button class="btn btn-secondary btn-sm" onclick="editSelRecolor()" title="上の「色」ボタンで選んだ色に塗り替え（明るさ・影は保つ）">🎨 選んだ色に変える</button>
         <button class="btn btn-secondary btn-sm" onclick="editSelDelete()" title="選んだ部分を消す">🗑 選択を消す</button>
         <button class="btn btn-secondary btn-sm" onclick="editSelClear()">✕ 選択解除</button>
       </div>
       <div id="editFloatPanel" style="display:none;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px;background:#fff6e5;border:1px solid #ffe0a3;border-radius:7px;padding:8px 10px">
-        <span style="font-size:12px;font-weight:700;color:#b26a00">📌 貼り付け中：ドラッグで位置を調整して「✅ここに置く」</span>
+        <span style="font-size:12px;font-weight:700;color:#b26a00">📌 貼り付け中：ドラッグで移動</span>
+        <button class="btn btn-secondary btn-sm" onclick="editFloatRotate(-90)" title="左に90°回転">↺ 左90°</button>
+        <button class="btn btn-secondary btn-sm" onclick="editFloatRotate(90)" title="右に90°回転">↻ 右90°</button>
+        <button class="btn btn-secondary btn-sm" onclick="editFloatFlip('h')" title="左右を反転">◀▶ 左右反転</button>
+        <button class="btn btn-secondary btn-sm" onclick="editFloatFlip('v')" title="上下を反転">▲▼ 上下反転</button>
+        <label style="font-size:12px;color:#555;display:inline-flex;align-items:center;gap:5px" title="細かい角度で回転">角度<input type="range" id="editFloatAngle" min="-180" max="180" value="0" oninput="editFloatSetAngle(this.value)" style="vertical-align:middle"></label>
         <button class="btn btn-primary btn-sm" onclick="editFloatingCommit()">✅ ここに置く</button>
         <button class="btn btn-secondary btn-sm" onclick="editFloatingCancel()">✕ やめる</button>
       </div>
@@ -1311,7 +1316,7 @@ function editDown(e) {
     const px = Math.min(_edit.canvas.width - 1, Math.max(0, Math.round(p.x)));
     const py = Math.min(_edit.canvas.height - 1, Math.max(0, Math.round(p.y)));
     const tol = parseInt(document.getElementById('editWandTol').value, 10) || 45;
-    editSelectAt(px, py, tol);
+    editSelectAt(px, py, tol, e.shiftKey); // Shift＋クリックで範囲を追加
     e.preventDefault();
     return;
   }
@@ -1454,17 +1459,25 @@ function floodEraseAt(ctx, w, h, sx, sy, tol) {
 }
 
 // ===== 🎯 範囲選択（コピー／色替え／削除／貼り付け） =====
-// (px,py)と同色の連結領域を選択マスクにして、水色の縁でハイライト表示する
-function editSelectAt(px, py, tol) {
+// (px,py)と同色の連結領域を選択マスクにして、水色の縁でハイライト表示する。
+// additive=true（Shift＋クリック）のときは、既存の選択に足す（複数範囲の選択）。
+function editSelectAt(px, py, tol, additive) {
   editFloatingCancel(); // 貼り付け途中なら片付ける
   const w = _edit.canvas.width, h = _edit.canvas.height;
-  if (_edit.sel && _edit.selSnap) _edit.ctx.putImageData(_edit.selSnap, 0, 0); // 前のハイライトを消す
-  const snap = _edit.ctx.getImageData(0, 0, w, h);
+  let snap, sel;
+  if (additive && _edit.sel && _edit.selSnap) {
+    _edit.ctx.putImageData(_edit.selSnap, 0, 0); // ハイライトを一旦消す
+    snap = _edit.selSnap;   // 既存のクリーンな画像で色を判定
+    sel = _edit.sel;        // 既存の選択に追加していく
+  } else {
+    if (_edit.sel && _edit.selSnap) _edit.ctx.putImageData(_edit.selSnap, 0, 0);
+    snap = _edit.ctx.getImageData(0, 0, w, h);
+    sel = new Uint8Array(w * h);
+  }
   const d = snap.data;
   const si = (py * w + px) * 4;
   const sr = d[si], sg = d[si + 1], sb = d[si + 2], sa = d[si + 3];
   const t2 = tol * tol;
-  const sel = new Uint8Array(w * h);
   const seen = new Uint8Array(w * h);
   const stack = [py * w + px];
   while (stack.length) {
@@ -1578,16 +1591,43 @@ function editSelPaste() {
   let x = (cl.ox || 0) + 20, y = (cl.oy || 0) + 20;
   if (x + cl.w > w) x = Math.max(0, (w - cl.w) / 2);
   if (y + cl.h > h) y = Math.max(0, (h - cl.h) / 2);
-  _edit.floating = { img: cl.canvas, w: cl.w, h: cl.h, x: Math.round(x), y: Math.round(y) };
+  _edit.floating = { img: cl.canvas, w: cl.w, h: cl.h, x: Math.round(x), y: Math.round(y), angle: 0, flipH: false, flipV: false };
+  const asl = document.getElementById('editFloatAngle'); if (asl) asl.value = 0;
   _editDrawFloating();
   document.getElementById('editFloatPanel').style.display = 'flex';
   setEditTool('select'); // ドラッグで動かせるツールに
 }
 function _editDrawFloating() {
   if (!_edit || !_edit.floating || !_edit.baseSnap) return;
-  const ctx = _edit.ctx;
+  const ctx = _edit.ctx, f = _edit.floating;
   ctx.putImageData(_edit.baseSnap, 0, 0);
-  ctx.drawImage(_edit.floating.img, _edit.floating.x, _edit.floating.y);
+  ctx.save();
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+  ctx.translate(f.x + f.w / 2, f.y + f.h / 2); // 中心を軸に回転・反転
+  ctx.rotate((f.angle || 0) * Math.PI / 180);
+  ctx.scale(f.flipH ? -1 : 1, f.flipV ? -1 : 1);
+  ctx.drawImage(f.img, -f.w / 2, -f.h / 2);
+  ctx.restore();
+}
+// 貼り付け中の画像を回転・反転
+function editFloatRotate(deg) {
+  if (!_edit || !_edit.floating) return;
+  let a = (_edit.floating.angle || 0) + deg;
+  a = ((a + 180) % 360 + 360) % 360 - 180; // -180〜180に正規化
+  _edit.floating.angle = a;
+  const asl = document.getElementById('editFloatAngle'); if (asl) asl.value = Math.round(a);
+  _editDrawFloating();
+}
+function editFloatSetAngle(v) {
+  if (!_edit || !_edit.floating) return;
+  _edit.floating.angle = parseInt(v, 10) || 0;
+  _editDrawFloating();
+}
+function editFloatFlip(dir) {
+  if (!_edit || !_edit.floating) return;
+  if (dir === 'h') _edit.floating.flipH = !_edit.floating.flipH;
+  else _edit.floating.flipV = !_edit.floating.flipV;
+  _editDrawFloating();
 }
 function editFloatingCommit() {
   if (!_edit || !_edit.floating) return;
