@@ -236,7 +236,7 @@
 </head>
 <body>
   <div class="header">
-    <h1>🟢 LINEスタンプメーカー <span style="font-size:10px;font-weight:400;opacity:0.75">v2026.07.07g</span></h1>
+    <h1>🟢 LINEスタンプメーカー <span style="font-size:10px;font-weight:400;opacity:0.75">v2026.07.07h</span></h1>
     <div class="header-actions">
       <span class="api-status" id="apiStatus">API未設定</span>
       <button class="btn btn-secondary btn-sm" onclick="openSettings()">⚙ 設定</button>
@@ -362,6 +362,10 @@
           <span>✂ 切り抜きを<strong>そのまま使う</strong>とき、<strong>白い背景を透明にする</strong>（LINE用・推奨）</span>
         </label>
         <div style="font-size:11px;color:#888;margin-top:3px;padding-left:24px">外周の白だけ消すので、白い服や目の白は残ります。うまく消えない時はオフにできます。</div>
+        <div style="margin-top:10px;padding-left:24px">
+          <label class="form-label" style="margin-bottom:5px">白背景を消す強さ</label>
+          <div id="bgModeRow1"></div>
+        </div>
       </div>
     </div>
 
@@ -439,6 +443,10 @@
           <input type="checkbox" id="ownBgRemoveChk" checked>
           白い背景を透明にする
         </label>
+      </div>
+      <div style="margin-top:10px">
+        <label class="form-label" style="margin-bottom:5px">白背景を消す強さ（下の🅐両方に共通）</label>
+        <div id="bgModeRow2"></div>
       </div>
       <div style="font-size:11px;color:#888;margin-top:8px">アップした画像は「④スタンプ画像」の一覧に追加されます。🎞ボタンで動きの変更、「🎞 アニメスタンプZIP」でLINE申請用にまとめられます。</div>
     </div>
@@ -520,7 +528,8 @@
         <label style="font-size:12px;color:#555;display:inline-flex;align-items:center;gap:5px">太さ<input type="range" id="editSize" min="2" max="90" value="24" style="vertical-align:middle"></label>
         <label style="font-size:12px;color:#555;display:inline-flex;align-items:center;gap:5px">色<input type="color" id="editColor" value="#333333"></label>
         <button class="btn btn-secondary btn-sm" onclick="editUndo()">↩ 元に戻す</button>
-        <button class="btn btn-secondary btn-sm" onclick="editRemoveWhite()">白を透明に</button>
+        <button class="btn btn-secondary btn-sm" onclick="editRemoveWhite('safe')" title="顔・体を守って白背景を消す">白を透明に(やさしく)</button>
+        <button class="btn btn-secondary btn-sm" onclick="editRemoveWhite('strong')" title="文字ぎわ・文字の輪の中まで消す（消えすぎたら↩で戻す）">白を透明に(しっかり)</button>
         <button class="btn btn-secondary btn-sm" id="editAllFramesBtn" style="display:none" onclick="editApplyToAllFrames()" title="表示中のコマで行った消しゴム・ペンの修正を、他の全コマにも適用します">⧉ 全コマへ反映</button>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
@@ -644,6 +653,7 @@ const state = {
   refImages: [],    // [{ name, dataUrl, blob }] — global references applied to all stamps
   clips: [],        // [{ name, dataUrl, blob }] — シートから切り抜いた1コマ置き場（ドラッグで割り当て）
   bgRemove: true,   // 切り抜きをそのまま使うとき、外周の白背景を透明化する（LINE用）
+  bgRemoveMode: 'safe', // 'safe'=やさしく(顔・体を守る) / 'strong'=しっかり(文字まで消す)
   mainImage: null,  // LINE提出用メイン画像240×240（base64）
   tabImage: null,   // LINE提出用タブ画像96×74（base64）
   apiEnabled: true, // AI生成(API)を使うか。オフなら切り抜きの直接使用のみ（課金ガード）
@@ -667,6 +677,7 @@ function load() {
     state.refImages = [];   // 参考画像はlocalStorageに保存しない（大きすぎるため）。IndexedDBのセット復元時のみ復活
     state.clips = [];       // 切り抜きトレイもセッション内のみ（保存しない）
     state.bgRemove = d.bgRemove !== false; // 既定ON
+    state.bgRemoveMode = d.bgRemoveMode === 'strong' ? 'strong' : 'safe';
     state.apiEnabled = d.apiEnabled !== false; // 既定ON
     state.storeTextLangs = Array.isArray(d.storeTextLangs) && d.storeTextLangs.length ? d.storeTextLangs : ['ja', 'en'];
     state.storeTexts = d.storeTexts || {};
@@ -706,6 +717,7 @@ function save() {
       captionMode: state.captionMode,
       refStrength: state.refStrength,
       bgRemove: state.bgRemove,
+      bgRemoveMode: state.bgRemoveMode,
       apiEnabled: state.apiEnabled,
       storeTextLangs: state.storeTextLangs,
       storeTexts: state.storeTexts,
@@ -810,6 +822,7 @@ function bindInputs() {
   const nc = document.getElementById('noCaptionChk');
   if (nc) nc.checked = state.noCaption === true;
   renderTonePills();
+  renderBgModeUI();
   updateStyleHint();
 }
 
@@ -1291,11 +1304,12 @@ function editMove(e) {
 }
 function editUp() { if (_edit) { _edit.drawing = false; _edit.panning = false; } }
 function editUndo() { if (_edit && _edit.history.length) { _edit.ctx.putImageData(_edit.history.pop(), 0, 0); _edit.scaleBase = null; } }
-async function editRemoveWhite() {
+async function editRemoveWhite(mode) {
   if (!_edit) return;
   _editSaveHistory();
   _edit.scaleBase = null;
-  const url = await whiteToTransparent(_edit.canvas.toDataURL('image/png'), null, true); // 手動時のみポケット除去も実行（↩で戻せる）
+  // 手動なので↩で戻せる。mode未指定なら現在の設定に従う
+  const url = await removeBg(_edit.canvas.toDataURL('image/png'), mode || state.bgRemoveMode);
   const img = new Image();
   img.onload = () => { _edit.ctx.clearRect(0, 0, _edit.canvas.width, _edit.canvas.height); _edit.ctx.drawImage(img, 0, 0); };
   img.src = url;
@@ -1898,7 +1912,9 @@ Square 1:1 composition. NO copyrighted characters or brand logos. NO violence or
 // removePockets=true のときだけ「囲まれた背景色の小さなポケット」も除去する（積極モード）。
 // キャラの白目・歯・ハイライト等を誤って消す恐れがあるため、自動処理では使わず、
 // 手動の「白を透明に」ボタン（↩元に戻すあり）でのみ有効にする。
-function whiteToTransparent(dataUrl, tol, removePockets) {
+// useGuard=false のときは輪郭からの収縮ガードを使わず、単純な外周フラッドフィルで
+// 文字ぎわの背景までしっかり消す（＝旧「しっかり」方式。顔・体も消えやすい）。
+function whiteToTransparent(dataUrl, tol, removePockets, useGuard, pocketFrac) {
   // 背景色との許容色距離。広すぎると背景に近い色の肌・体まで消えるため控えめに。
   // 肌色(例 250,240,220)は白との距離≒38あるので、既定30なら消えず残る。
   tol = tol || 30;
@@ -1988,22 +2004,46 @@ function whiteToTransparent(dataUrl, tol, removePockets) {
           }
           return { mask, count };
         };
-        const R0 = Math.max(2, Math.round(Math.min(w, h) / 300));
-        let chosen = clearMaskForR(R0);
-        // 消える量がそれなりにある時だけ漏れ検査（すでにほぼ透明な画像などはスキップ）
-        if (chosen.count > N * 0.08) {
-          const big = clearMaskForR(R0 * 6);
-          if (chosen.count - big.count > N * 0.03) {
-            // 漏れあり：中間のRで塞がるならそちらを採用（正当な狭い溝を残しすぎないため）
-            const mid = clearMaskForR(R0 * 3);
-            chosen = (mid.count - big.count <= N * 0.01) ? mid : big;
+        if (useGuard === false) {
+          // 【しっかりモード】収縮ガードなしの単純な外周フラッドフィル。
+          // 文字ぎわ・細い溝の背景まで消えるが、輪郭に隙間があると顔・体まで消えることがある。
+          const visited = new Uint8Array(N);
+          const stack = [];
+          const consider = (x, y) => {
+            if (x < 0 || y < 0 || x >= w || y >= h) return;
+            const p = y * w + x;
+            if (visited[p]) return;
+            visited[p] = 1;
+            const i = p * 4;
+            if (d[i + 3] < 8) { stack.push(p); return; } // すでに透明も通り道にする
+            if (bgLike[p]) { d[i + 3] = 0; stack.push(p); }
+          };
+          for (let x = 0; x < w; x++) { consider(x, 0); consider(x, h - 1); }
+          for (let y = 0; y < h; y++) { consider(0, y); consider(w - 1, y); }
+          while (stack.length) {
+            const p = stack.pop(); const x = p % w, y = (p / w) | 0;
+            consider(x + 1, y); consider(x - 1, y); consider(x, y + 1); consider(x, y - 1);
           }
+        } else {
+          // 【やさしいモード】通り道を輪郭からRpx離して進める収縮ガード方式。
+          const R0 = Math.max(2, Math.round(Math.min(w, h) / 300));
+          let chosen = clearMaskForR(R0);
+          // 消える量がそれなりにある時だけ漏れ検査（すでにほぼ透明な画像などはスキップ）
+          if (chosen.count > N * 0.08) {
+            const big = clearMaskForR(R0 * 6);
+            if (chosen.count - big.count > N * 0.03) {
+              // 漏れあり：中間のRで塞がるならそちらを採用（正当な狭い溝を残しすぎないため）
+              const mid = clearMaskForR(R0 * 3);
+              chosen = (mid.count - big.count <= N * 0.01) ? mid : big;
+            }
+          }
+          for (let p = 0; p < N; p++) if (chosen.mask[p]) d[p * 4 + 3] = 0;
         }
-        for (let p = 0; p < N; p++) if (chosen.mask[p]) d[p * 4 + 3] = 0;
         // 第2パス（オプション）：文字の輪の中など「囲まれて取り残された背景色の小さなポケット」を除去。
         // ※キャラの白目・歯・ハイライトも消してしまうことがあるため removePockets=true のときだけ実行
         if (removePockets) {
-          const maxPocket = Math.max(64, Math.floor(w * h * 0.006));
+          // 消してよい「囲まれた背景ポケット」の最大サイズ。しっかりモードは大きめ（文字の輪の中も対象）
+          const maxPocket = Math.max(64, Math.floor(w * h * (pocketFrac || 0.006)));
           const seen = new Uint8Array(w * h);
           const isBg = (p) => {
             const i = p * 4;
@@ -2033,6 +2073,32 @@ function whiteToTransparent(dataUrl, tol, removePockets) {
     img.onerror = () => resolve(dataUrl);
     img.src = dataUrl;
   });
+}
+
+// 背景透明化：選んだモードで実行する共通入口。
+//  safe（やさしく）… 顔・体を守る。輪郭の隙間から中へ漏れない。文字ぎわは少し残ることがある。
+//  strong（しっかり）… 文字ぎわ・文字の輪の中の白まで消す。顔・体・白目も消えやすい。
+function removeBg(dataUrl, mode) {
+  if (mode === 'strong') return whiteToTransparent(dataUrl, 45, true, false, 0.08); // 文字の輪の中(やや大きめ)も消す
+  return whiteToTransparent(dataUrl, 30, false, true);
+}
+
+// 背景透明化の強さ2択トグルを、③と⑤の両方に描画する（同じ設定を共有）
+function renderBgModeUI() {
+  const strong = state.bgRemoveMode === 'strong';
+  const html = `<div class="radio-row" style="max-width:460px">
+      <div class="radio-pill ${strong ? '' : 'active'}" onclick="setBgMode('safe')" title="顔・体を守ります。文字ぎわが少し残ることがあります">🙂 やさしく<br><span style="font-size:10px;font-weight:400">顔・体を守る</span></div>
+      <div class="radio-pill ${strong ? 'active' : ''}" onclick="setBgMode('strong')" title="文字ぎわ・文字の輪の中まで消します。顔・体・白目も消えやすいです">✂ しっかり<br><span style="font-size:10px;font-weight:400">文字まで消す</span></div>
+    </div>
+    <div style="font-size:11px;color:#888;margin-top:5px">${strong
+      ? '⚠ しっかりモード：文字のまわりや「あ」「ロ」の輪の中の白まで消えます。ただし顔・体・白目も消えやすいので、消えすぎたら🖊修正の💧スポイトで塗り戻せます。'
+      : '🙂 やさしいモード：顔・体は守られます。文字ぎわの白が残るときは「✂ しっかり」に切り替えてください。'}</div>`;
+  ['bgModeRow1', 'bgModeRow2'].forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = html; });
+}
+function setBgMode(m) {
+  state.bgRemoveMode = (m === 'strong') ? 'strong' : 'safe';
+  save();
+  renderBgModeUI();
 }
 
 // キャラ部分（透明でない範囲）を検出し、740×640の枠に同じ比率で中央配置する
@@ -2115,9 +2181,9 @@ async function bulkRemoveBg() {
   for (const i of t) {
     const c = state.captions[i];
     if (_isPara(c)) {
-      await processParaFrames(c, async du => await whiteToTransparent(du));
+      await processParaFrames(c, async du => await removeBg(du, state.bgRemoveMode));
     } else {
-      const u = await whiteToTransparent(b64src(c.image)); c.image = u.split(',')[1];
+      const u = await removeBg(b64src(c.image), state.bgRemoveMode); c.image = u.split(',')[1];
       await refreshAnim(i);
     }
   }
@@ -2131,10 +2197,10 @@ async function bulkFix() {
     if (_isPara(c)) {
       // 背景透明化→全コマ共通の枠でフィット
       const cleaned = [];
-      for (const du of c.anim.frames) cleaned.push(await whiteToTransparent(du));
+      for (const du of c.anim.frames) cleaned.push(await removeBg(du, state.bgRemoveMode));
       await rebuildParaFromFrames(c, await paraAutoFitAll(cleaned));
     } else {
-      const u = await whiteToTransparent(b64src(c.image)); // 背景透明
+      const u = await removeBg(b64src(c.image), state.bgRemoveMode); // 背景透明
       c.image = await autoFitImage(u);                      // 大きさ揃え
       await refreshAnim(i);
     }
@@ -2153,7 +2219,7 @@ async function generateOneImage(i) {
   if (state.refStrength === 'same' && c.refImage && c.refImage.dataUrl && c.refImage.dataUrl.indexOf(',') > -1) {
     try {
       let dataUrl = c.refImage.dataUrl;
-      if (state.bgRemove) dataUrl = await whiteToTransparent(dataUrl);
+      if (state.bgRemove) dataUrl = await removeBg(dataUrl, state.bgRemoveMode);
       c.image = dataUrl.split(',')[1];
       c.status = 'done';
       await refreshAnim(i); // アニメ設定済みなら新しい画像で作り直す
@@ -3087,7 +3153,7 @@ async function onOwnImages(e) {
     if (btn) btn.innerHTML = `<span class="spinner"></span>取り込み中… ${++done}/${files.length}`;
     try {
       let { dataUrl } = await normalizeImageFile(f, 1024);
-      if (bgRemove) dataUrl = await whiteToTransparent(dataUrl);
+      if (bgRemove) dataUrl = await removeBg(dataUrl, state.bgRemoveMode);
       state.captions.push({
         text: (f.name || 'stamp').replace(/\.[^.]+$/, ''),
         emotion: '', composition: '', customPrompt: '', customStyle: '',
@@ -3126,7 +3192,7 @@ async function onFrameImages(e) {
     if (btn) btn.innerHTML = `<span class="spinner"></span>取り込み中… ${++done}/${files.length}`;
     try {
       let { dataUrl } = await normalizeImageFile(f, 1024);
-      if (bgRemove) dataUrl = await whiteToTransparent(dataUrl);
+      if (bgRemove) dataUrl = await removeBg(dataUrl, state.bgRemoveMode);
       const img = await loadImage(dataUrl);
       _frames.list.push({ dataUrl, img });
     } catch (err) { alert(`「${f.name}」：${err.message}`); }
@@ -3163,7 +3229,7 @@ async function addFramesFromClips() {
     if (_frames.list.length >= 20) { over = true; break; }
     try {
       let dataUrl = cl.dataUrl;
-      if (bgRemove) dataUrl = await whiteToTransparent(dataUrl);
+      if (bgRemove) dataUrl = await removeBg(dataUrl, state.bgRemoveMode);
       const img = await loadImage(dataUrl);
       _frames.list.push({ dataUrl, img });
     } catch (e) { console.warn('切り抜きの取り込みに失敗:', e); }
