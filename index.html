@@ -241,7 +241,7 @@
 </head>
 <body>
   <div class="header">
-    <h1>🟢 LINEスタンプメーカー <span style="font-size:10px;font-weight:400;opacity:0.75">v2026.07.07q</span></h1>
+    <h1>🟢 LINEスタンプメーカー <span style="font-size:10px;font-weight:400;opacity:0.75">v2026.07.07r</span></h1>
     <div class="header-actions">
       <span class="api-status" id="apiStatus">API未設定</span>
       <button class="btn btn-secondary btn-sm" onclick="openSettings()">⚙ 設定</button>
@@ -4241,6 +4241,8 @@ function idbInit() {
       if (!db.objectStoreNames.contains('sets')) db.createObjectStore('sets', { keyPath: 'id' });
       if (!db.objectStoreNames.contains('images')) db.createObjectStore('images', { keyPath: 'id' }); // 1枚ずつ保存する「マイ画像」
     };
+    // 同じアプリを他のタブ/ウィンドウで開いていると、データ更新がブロックされて保存できないことがある
+    req.onblocked = () => { alert('保存の準備ができませんでした。\n同じLINEスタンプメーカーを開いている他のタブ・ウィンドウをすべて閉じてから、このページを再読み込みしてください。'); };
     req.onsuccess = () => { _idb = req.result; resolve(_idb); };
     req.onerror = () => reject(req.error);
   });
@@ -4462,9 +4464,15 @@ async function saveCurrentSet() {
   try {
     await idbSaveSet(name.trim() || def);
     await renderHistory();
-    alert('✓ 保存しました');
+    // 保存したものが見えるように一覧までスクロール
+    const area = document.getElementById('historyArea');
+    if (area) area.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    alert('✓ 上の「📚 保存済みスタンプセット」に保存しました。\n（この一覧はこのブラウザの中に保存されます。パソコンにも控えを取るなら「💾 全部バックアップ」を使ってください）');
   } catch (e) {
-    alert('保存に失敗：' + e.message);
+    const q = /quota|exceeded|storage/i.test((e && (e.name + ' ' + e.message)) || '');
+    alert(q
+      ? '保存できませんでした。ブラウザの保存容量がいっぱいのようです。\n\n「💾 全部バックアップ」でパソコンに控えを取ってから、いらない保存セットを🗑で減らして、もう一度お試しください。'
+      : ('保存に失敗：' + (e && e.message ? e.message : e)));
   }
 }
 
@@ -4479,23 +4487,27 @@ async function renderHistory() {
   }
   let html = `<div class="history-strip">`;
   for (const s of sets) {
-    const firstImg = s.captions.find(c => c.image);
-    let thumbSrc = null;
-    if (firstImg) thumbSrc = `data:image/png;base64,${firstImg.image}`;
-    else if (s.refImages && s.refImages[0]) thumbSrc = s.refImages[0].dataUrl;
-    else if (s.refImageDataUrl) thumbSrc = s.refImageDataUrl;
-    const dones = s.captions.filter(c => c.image).length;
-    const date = new Date(s.savedAt).toLocaleDateString('ja-JP', { month: '2-digit', day: '2-digit' });
-    html += `<div class="history-card">
-      <div class="history-thumb">${thumbSrc ? `<img src="${thumbSrc}">` : '🎨'}</div>
-      <div class="history-name" title="${escAttr(s.name)}">${escHtml(s.name)}</div>
-      <div class="history-meta">${dones}/${s.captions.length}枚・${date}</div>
-      <div class="history-actions">
-        <button class="btn btn-secondary" onclick="useSetAsRef(${s.id})" title="このセットの画像を「参考画像」に使って、新しいスタンプを作る">🖼→</button>
-        <button class="btn btn-secondary" onclick="loadSet(${s.id})" title="このセットを開いて続きを編集（今の作業は消えます）">📂</button>
-        <button class="btn btn-danger" onclick="deleteSet(${s.id})" title="削除">🗑</button>
-      </div>
-    </div>`;
+    // 1件でも壊れたセットがあっても、他が消えないように1件ずつ守る
+    try {
+      const caps = Array.isArray(s.captions) ? s.captions : [];
+      const firstImg = caps.find(c => c && c.image);
+      let thumbSrc = null;
+      if (firstImg) thumbSrc = `data:image/png;base64,${firstImg.image}`;
+      else if (s.refImages && s.refImages[0]) thumbSrc = s.refImages[0].dataUrl;
+      else if (s.refImageDataUrl) thumbSrc = s.refImageDataUrl;
+      const dones = caps.filter(c => c && c.image).length;
+      const date = s.savedAt ? new Date(s.savedAt).toLocaleDateString('ja-JP', { month: '2-digit', day: '2-digit' }) : '';
+      html += `<div class="history-card">
+        <div class="history-thumb">${thumbSrc ? `<img src="${thumbSrc}">` : '🎨'}</div>
+        <div class="history-name" title="${escAttr(s.name || '')}">${escHtml(s.name || '無題')}</div>
+        <div class="history-meta">${dones}/${caps.length}枚・${date}</div>
+        <div class="history-actions">
+          <button class="btn btn-secondary" onclick="useSetAsRef(${s.id})" title="このセットの画像を「参考画像」に使って、新しいスタンプを作る">🖼→</button>
+          <button class="btn btn-secondary" onclick="loadSet(${s.id})" title="このセットを開いて続きを編集（今の作業は消えます）">📂</button>
+          <button class="btn btn-danger" onclick="deleteSet(${s.id})" title="削除">🗑</button>
+        </div>
+      </div>`;
+    } catch (e) { console.warn('保存セットの表示をスキップ:', e); }
   }
   html += `</div>`;
   area.innerHTML = html;
