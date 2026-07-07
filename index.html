@@ -241,7 +241,7 @@
 </head>
 <body>
   <div class="header">
-    <h1>🟢 LINEスタンプメーカー <span style="font-size:10px;font-weight:400;opacity:0.75">v2026.07.07p</span></h1>
+    <h1>🟢 LINEスタンプメーカー <span style="font-size:10px;font-weight:400;opacity:0.75">v2026.07.07q</span></h1>
     <div class="header-actions">
       <span class="api-status" id="apiStatus">API未設定</span>
       <button class="btn btn-secondary btn-sm" onclick="openSettings()">⚙ 設定</button>
@@ -353,6 +353,7 @@
           <button class="btn btn-secondary btn-sm" onclick="document.getElementById('refFile').click()" title="写真アプリから選ぶ（AndroidはGoogleフォト、iPhoneは写真）">📷 写真から選ぶ</button>
           <button class="btn btn-secondary btn-sm" onclick="document.getElementById('refFileAny').click()" title="スマホ本体・ダウンロード・iCloud・SDカードなどから選ぶ">📂 ファイルから選ぶ</button>
           <button class="btn btn-primary btn-sm" onclick="openRefLibrary()" title="これまでに作って「⭐保存」したスタンプ画像から、参考画像を選ぶ">📁 保存した画像から選ぶ</button>
+          <button class="btn btn-primary btn-sm" onclick="assignRefsInOrder()" id="refAssignBtn" style="display:none" title="参考画像を1枚目→スタンプ01、2枚目→スタンプ02…と順番に各スタンプへ割り当てます。忠実度「そのまま同じ」で生成すると、その画像がそのままスタンプになります（無料）">➡ 参考画像を順番にスタンプへ割り当て</button>
           <button class="btn btn-secondary btn-sm" onclick="openCropFromRef()" id="refCropBtn" style="display:none">✂ 1コマを切り抜く</button>
           <button class="btn btn-danger btn-sm" onclick="clearRefImage()" id="refClearBtn" style="display:none">✕ 解除</button>
         </div>
@@ -1013,8 +1014,10 @@ function renderRefImage() {
   const clr    = document.getElementById('refClearBtn');
   const cropBtn= document.getElementById('refCropBtn');
   const zone   = document.getElementById('refZone');
+  const assignBtn = document.getElementById('refAssignBtn');
   const imgs   = state.refImages || [];
   if (cropBtn) cropBtn.style.display = imgs.length ? '' : 'none';
+  if (assignBtn) assignBtn.style.display = imgs.length ? '' : 'none';
   if (imgs.length) {
     let h = imgs.map((im, idx) =>
       `<div class="ref-thumb"><img src="${im.dataUrl}" alt="ref" style="cursor:pointer" onclick="openCropFromRef(${idx})" title="クリックでこの画像から切り抜き"><button class="ref-thumb-x" onclick="removeRefImage(${idx})" title="この画像を外す">✕</button></div>`
@@ -1176,6 +1179,26 @@ function assignClipsInOrder() {
   }
   renderStamps();
   alert(`${n}個の切り抜きを、スタンプ 01〜${String(n).padStart(2, '0')} に順番に割り当てました。\n忠実度「そのまま同じ」で生成すると、その画像がそのままスタンプになります（文字もそのまま）。`);
+}
+
+// ③の参考画像を、1枚目→スタンプ01・2枚目→スタンプ02…と順番に各スタンプへ割り当てる。
+// 忠実度「そのまま同じ」で生成すると、その画像がそのままスタンプになる（AI描き直しなし・無料）。
+function assignRefsInOrder() {
+  const refs = state.refImages || [];
+  if (!refs.length) { alert('先に「③ 参考画像」に画像をアップ／選択してください'); return; }
+  if (!state.captions.length) { alert('先に「② セリフ案を作る」でスタンプ枠を用意してください'); return; }
+  const n = Math.min(refs.length, state.captions.length);
+  for (let i = 0; i < n; i++) {
+    state.captions[i].refImage = { name: refs[i].name, dataUrl: refs[i].dataUrl, blob: refs[i].blob };
+  }
+  // このボタンを使う人は「参考画像をそのままスタンプに」したい場合が多いので、忠実度を寄せておく
+  if (!['same', 'exact', 'high'].includes(state.refStrength)) {
+    state.refStrength = 'high';
+    const rs = document.getElementById('refStrengthSelect'); if (rs) rs.value = 'high';
+    save();
+  }
+  renderStamps();
+  alert(`${n}枚の参考画像を、スタンプ 01〜${String(n).padStart(2, '0')} に順番に割り当てました。\n\nこのまま「④ 🎨 全スタンプ画像を一括生成」を押すと生成できます。\n忠実度を「そのまま同じ」にすれば、AIを使わず画像をそのままスタンプにできます（無料・文字もそのまま）。`);
 }
 
 // スタンプカードへ、①トレイの切り抜き ②PCの画像ファイル をドロップ → そのスタンプ専用の参考画像に
