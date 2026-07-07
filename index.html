@@ -236,7 +236,7 @@
 </head>
 <body>
   <div class="header">
-    <h1>🟢 LINEスタンプメーカー <span style="font-size:10px;font-weight:400;opacity:0.75">v2026.07.07j</span></h1>
+    <h1>🟢 LINEスタンプメーカー <span style="font-size:10px;font-weight:400;opacity:0.75">v2026.07.07k</span></h1>
     <div class="header-actions">
       <span class="api-status" id="apiStatus">API未設定</span>
       <button class="btn btn-secondary btn-sm" onclick="openSettings()">⚙ 設定</button>
@@ -540,7 +540,7 @@
         <button class="btn btn-secondary btn-sm" onclick="editZoom(1.5)">🔍＋ 拡大</button>
         <button class="btn btn-secondary btn-sm" onclick="editZoom(1/1.5)">🔍− 縮小</button>
         <button class="btn btn-secondary btn-sm" onclick="editZoomReset()">100%</button>
-        <span style="font-size:11px;color:#888">拡大中は「✋移動」でドラッグして位置を動かせます</span>
+        <span style="font-size:11px;color:#888">拡大中は「✋移動」でドラッグ、または<strong>マウスの右ボタンでドラッグ</strong>すると、ツールを変えずに位置を動かせます</span>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
         <span style="font-size:12px;font-weight:700;color:#555">サイズ:</span>
@@ -554,6 +554,7 @@
       </div>
       <div style="text-align:center;background:repeating-conic-gradient(#f0f0f0 0% 25%, #fff 0% 50%) 50% / 16px 16px;border:1px solid #ddd;border-radius:8px;padding:8px;overflow:hidden">
         <canvas id="editCanvas" style="max-width:100%;max-height:55vh;touch-action:none;cursor:crosshair"
+          oncontextmenu="return false"
           onmousedown="editDown(event)" onmousemove="editMove(event)" onmouseup="editUp(event)"
           ontouchstart="editDown(event)" ontouchmove="editMove(event)" ontouchend="editUp(event)" ontouchcancel="editUp(event)"></canvas>
       </div>
@@ -1262,6 +1263,13 @@ function _editStroke(a, b) {
 }
 function editDown(e) {
   if (!_edit) return;
+  // 右ボタンドラッグ：どのツールを選んでいても、表示位置を動かせる（✋移動と同じ）
+  if (e.button === 2) {
+    _edit.panning = true;
+    _edit.panStart = { x: e.clientX - _edit.view.ox, y: e.clientY - _edit.view.oy };
+    e.preventDefault();
+    return;
+  }
   if (_edit.tool === 'picker') {
     // 💧スポイト：タップした場所の色を拾い、ペンに切り替えてすぐ塗れるように
     const p = _editXY(e);
@@ -1316,7 +1324,7 @@ function editDown(e) {
 }
 function editMove(e) {
   if (!_edit) return;
-  if (_edit.tool === 'hand' && _edit.panning) {
+  if (_edit.panning) { // ✋移動ツールの左ドラッグ、またはどのツールでも右ドラッグ
     const t = e.touches && e.touches[0];
     const cx = t ? t.clientX : e.clientX, cy = t ? t.clientY : e.clientY;
     _edit.view.ox = cx - _edit.panStart.x;
