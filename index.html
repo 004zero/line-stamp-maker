@@ -236,7 +236,7 @@
 </head>
 <body>
   <div class="header">
-    <h1>🟢 LINEスタンプメーカー <span style="font-size:10px;font-weight:400;opacity:0.75">v2026.07.07m</span></h1>
+    <h1>🟢 LINEスタンプメーカー <span style="font-size:10px;font-weight:400;opacity:0.75">v2026.07.07n</span></h1>
     <div class="header-actions">
       <span class="api-status" id="apiStatus">API未設定</span>
       <button class="btn btn-secondary btn-sm" onclick="openSettings()">⚙ 設定</button>
@@ -253,10 +253,16 @@
 
     <!-- 保存済みセット履歴 -->
     <div class="card">
-      <div class="card-title" style="justify-content:space-between;display:flex;width:100%">
+      <div class="card-title" style="justify-content:space-between;display:flex;width:100%;flex-wrap:wrap;gap:8px">
         <span style="display:flex;align-items:center;gap:7px"><span class="num">📚</span>保存済みスタンプセット</span>
-        <button class="btn btn-primary btn-sm" onclick="saveCurrentSet()" id="saveSetBtn" disabled>💾 現在のセットを保存</button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-secondary btn-sm" onclick="exportAllData()" title="保存済みセットを全部まとめて1つのファイルにして、パソコンに保存（バックアップ）します">💾 全部バックアップ</button>
+          <input type="file" id="importFile" accept="application/json,.json" style="display:none" onchange="importAllData(event)">
+          <button class="btn btn-secondary btn-sm" onclick="document.getElementById('importFile').click()" title="バックアップファイルを読み込んで、保存済みセットを元に戻します（別のパソコンへの引っ越しにも）">📂 復元</button>
+          <button class="btn btn-primary btn-sm" onclick="saveCurrentSet()" id="saveSetBtn" disabled>💾 現在のセットを保存</button>
+        </div>
       </div>
+      <div style="font-size:11px;color:#888;margin-bottom:10px">💡 保存済みセットはこのブラウザの中だけに保存されています。<strong>ブラウザのデータを消すと消えてしまう</strong>ので、ときどき「💾 全部バックアップ」でパソコンにも控えを取っておくと安心です。</div>
       <div id="historyArea"><div class="empty" style="padding:14px"><div style="font-size:12px;color:#aaa">まだ保存されたセットはありません。画像を生成したら「💾現在のセットを保存」で保存できます。</div></div></div>
     </div>
 
@@ -4209,6 +4215,71 @@ async function idbDeleteSet(id) {
     tx.oncomplete = () => res();
     tx.onerror = () => rej(tx.error);
   });
+}
+// 既存のセットオブジェクトをそのまま保存（バックアップ復元用）
+async function idbPutSet(set) {
+  const db = await idbInit();
+  return new Promise((res, rej) => {
+    const tx = db.transaction('sets', 'readwrite');
+    tx.objectStore('sets').put(set);
+    tx.oncomplete = () => res();
+    tx.onerror = () => rej(tx.error);
+  });
+}
+
+// ========== パソコンへバックアップ / 復元 ==========
+// 保存済みセット全部＋現在の設定を1つのJSONファイルにしてダウンロード
+async function exportAllData() {
+  try {
+    const sets = await idbListSets();
+    let settings = {};
+    try { settings = JSON.parse(localStorage.getItem('lineStampMaker') || '{}'); } catch (_) {}
+    if (!sets.length) {
+      if (!confirm('保存済みセットがまだありません。\n（先に「💾 現在のセットを保存」で保存できます）\nこのまま設定だけのバックアップを作りますか？')) return;
+    }
+    const backup = { app: 'line-stamp-maker', version: 1, exportedAt: new Date().toISOString(), settings, sets };
+    const blob = new Blob([JSON.stringify(backup)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `line-stamp-backup_${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    const mb = (blob.size / 1024 / 1024).toFixed(1);
+    alert(`✓ 保存済みセット ${sets.length}件（約${mb}MB）をパソコンに書き出しました。\n\nこのファイルを大切に保管してください。\n・ブラウザのデータを消しても、このファイルから元に戻せます\n・別のパソコンでも「📂 復元」で読み込めます`);
+  } catch (e) {
+    alert('バックアップに失敗しました：' + e.message);
+  }
+}
+
+// バックアップファイルを読み込んで、保存済みセットを復元（今ある分に追加）
+async function importAllData(e) {
+  const file = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  let text;
+  try { text = file.text ? await file.text() : await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsText(file); }); }
+  catch (err) { alert('ファイルの読み込みに失敗しました。'); return; }
+  let data;
+  try { data = JSON.parse(text); } catch (err) { alert('このファイルは読み込めませんでした。\nバックアップファイル（line-stamp-backup_〜.json）を選んでください。'); return; }
+  if (!data || data.app !== 'line-stamp-maker' || !Array.isArray(data.sets)) {
+    alert('このファイルはこのアプリのバックアップではないようです。'); return;
+  }
+  const n = data.sets.length;
+  if (!confirm(`バックアップから ${n}件 の保存セットを復元します。\n\n今ある保存セットに「追加」されます（今の分は消えません）。\nよろしいですか？`)) return;
+  try {
+    let restored = 0;
+    const base = Date.now();
+    for (let i = 0; i < data.sets.length; i++) {
+      const s = { ...data.sets[i], id: base + i }; // 重複しないよう新しいIDで追加
+      await idbPutSet(s);
+      restored++;
+    }
+    await renderHistory();
+    alert(`✓ ${restored}件の保存セットを復元しました。\n上の一覧に追加されています。`);
+  } catch (err) {
+    alert('復元に失敗しました：' + err.message);
+  }
 }
 
 // ========== History UI ==========
