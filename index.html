@@ -236,7 +236,7 @@
 </head>
 <body>
   <div class="header">
-    <h1>🟢 LINEスタンプメーカー <span style="font-size:10px;font-weight:400;opacity:0.75">v2026.07.07k</span></h1>
+    <h1>🟢 LINEスタンプメーカー <span style="font-size:10px;font-weight:400;opacity:0.75">v2026.07.07l</span></h1>
     <div class="header-actions">
       <span class="api-status" id="apiStatus">API未設定</span>
       <button class="btn btn-secondary btn-sm" onclick="openSettings()">⚙ 設定</button>
@@ -517,7 +517,7 @@
   <div class="modal-bg" id="editModal">
     <div class="modal" style="max-width:640px">
       <h2>🖊 スタンプを修正</h2>
-      <div class="note" style="margin-top:0;margin-bottom:10px">🩹 消しゴム＝余分を消す／🖊 ペン＝描き足す／💧 スポイト＝色を拾う／🪄 自動選択＝<strong>クリックした場所と同じ色のかたまりを自動で消す</strong>（背景消しに便利）／⭕ なげなわ＝<strong>指でぐるっと囲んだ範囲を消す</strong>。透明部分は市松模様で表示されます。</div>
+      <div class="note" style="margin-top:0;margin-bottom:10px">🩹 消しゴム／🖊 ペン／💧 スポイト＝色を拾う／🪄 自動選択＝<strong>同じ色のかたまりをクリックで即消す</strong>／⭕ なげなわ＝囲んだ範囲を消す／🎯 範囲選択＝<strong>同じ色の範囲を選んで、📋コピー・🎨色替え・🗑削除ができる</strong>。透明部分は市松模様で表示されます。</div>
       <div class="note" id="editParaNote" style="display:none;margin-top:0;margin-bottom:8px;background:#f3ecfd;border-left:3px solid #7b3fbf;color:#5a3d85">🎞 パラパラアニメ：下の<strong>コマ一覧から選んで、1コマずつ</strong>修正できます。消しゴム・ペンの修正を全部のコマにコピーしたいときは「⧉ 全コマへ反映」。</div>
       <div id="editFrameStrip" style="display:none;flex-wrap:wrap;gap:6px;margin-bottom:10px;align-items:flex-start"></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
@@ -526,6 +526,8 @@
         <button class="btn btn-secondary btn-sm" id="editPickerBtn" onclick="setEditTool('picker')" title="画像をタップして色を拾う（拾うと自動でペンに切替）">💧 スポイト</button>
         <button class="btn btn-secondary btn-sm" id="editWandBtn" onclick="setEditTool('wand')" title="クリックした場所と同じ色のつながったかたまりを自動で消す（背景消しに便利）">🪄 自動選択</button>
         <button class="btn btn-secondary btn-sm" id="editLassoBtn" onclick="setEditTool('lasso')" title="指でぐるっと囲んだ範囲を消す（なげなわ）">⭕ なげなわ</button>
+        <button class="btn btn-secondary btn-sm" id="editSelectBtn" onclick="setEditTool('select')" title="クリックで同じ色の範囲を選ぶ→コピー・色替え・削除ができる（🪄自動選択の即削除とは別）">🎯 範囲選択</button>
+        <button class="btn btn-secondary btn-sm" id="editPasteBtn" onclick="editSelPaste()" disabled title="コピーした部分を貼り付け（貼ったあとドラッグで移動）">📌 貼り付け</button>
         <button class="btn btn-secondary btn-sm" id="editHandBtn" onclick="setEditTool('hand')" title="ズーム中にドラッグで表示位置を移動">✋ 移動</button>
         <label style="font-size:12px;color:#555;display:inline-flex;align-items:center;gap:5px">太さ<input type="range" id="editSize" min="2" max="90" value="24" style="vertical-align:middle"></label>
         <label style="font-size:12px;color:#555;display:inline-flex;align-items:center;gap:5px" title="🪄自動選択で、どれくらい色が近ければ一緒に消すか。大きいほど広く消えます">🪄ゆるさ<input type="range" id="editWandTol" min="10" max="120" value="45" style="vertical-align:middle"></label>
@@ -534,6 +536,18 @@
         <button class="btn btn-secondary btn-sm" onclick="editRemoveWhite('safe')" title="顔・体を守って白背景を消す">白を透明に(やさしく)</button>
         <button class="btn btn-secondary btn-sm" onclick="editRemoveWhite('strong')" title="文字ぎわ・文字の輪の中まで消す（消えすぎたら↩で戻す）">白を透明に(しっかり)</button>
         <button class="btn btn-secondary btn-sm" id="editAllFramesBtn" style="display:none" onclick="editApplyToAllFrames()" title="表示中のコマで行った消しゴム・ペンの修正を、他の全コマにも適用します">⧉ 全コマへ反映</button>
+      </div>
+      <div id="editSelPanel" style="display:none;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px;background:#eef7ff;border:1px solid #cfe6ff;border-radius:7px;padding:8px 10px">
+        <span style="font-size:12px;font-weight:700;color:#0a66c2">🎯 選択中：</span>
+        <button class="btn btn-secondary btn-sm" onclick="editSelCopy()" title="選んだ部分をコピー">📋 コピー</button>
+        <button class="btn btn-secondary btn-sm" onclick="editSelRecolor()" title="右上の「色」で選んだ色に塗り替え（明るさ・影は保つ）">🎨 選んだ色に変える</button>
+        <button class="btn btn-secondary btn-sm" onclick="editSelDelete()" title="選んだ部分を消す">🗑 選択を消す</button>
+        <button class="btn btn-secondary btn-sm" onclick="editSelClear()">✕ 選択解除</button>
+      </div>
+      <div id="editFloatPanel" style="display:none;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px;background:#fff6e5;border:1px solid #ffe0a3;border-radius:7px;padding:8px 10px">
+        <span style="font-size:12px;font-weight:700;color:#b26a00">📌 貼り付け中：ドラッグで位置を調整して「✅ここに置く」</span>
+        <button class="btn btn-primary btn-sm" onclick="editFloatingCommit()">✅ ここに置く</button>
+        <button class="btn btn-secondary btn-sm" onclick="editFloatingCancel()">✕ やめる</button>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
         <span style="font-size:12px;font-weight:700;color:#555">🔍 表示ズーム（見た目だけ・画像は変わりません）:</span>
@@ -1141,6 +1155,10 @@ function openEdit(i) {
     _applyView();
     setEditTool('eraser');
     renderEditFrameStrip();
+    // 選択・貼り付けまわりを初期化
+    const sp = document.getElementById('editSelPanel'); if (sp) sp.style.display = 'none';
+    const fp = document.getElementById('editFloatPanel'); if (fp) fp.style.display = 'none';
+    const pb = document.getElementById('editPasteBtn'); if (pb) pb.disabled = true;
     document.getElementById('editModal').classList.add('open');
   };
   img.src = isPara ? frames[0] : b64src(c.image);
@@ -1169,6 +1187,9 @@ function renderEditFrameStrip() {
 // パラパラ修正用：表示コマの切り替え（今のコマの編集内容は控えに保存される）
 function switchEditFrame(k) {
   if (!_edit || !_edit.frames || k === _edit.frameIndex || k < 0 || k >= _edit.frames.length) return;
+  // コマ切替前に、貼り付け途中は確定・選択ハイライトは消す
+  if (_edit.floating) editFloatingCommit();
+  else if (_edit.sel && _edit.selSnap) _editClearSelState();
   _edit.frames[_edit.frameIndex] = _edit.canvas.toDataURL('image/png');
   const img = new Image();
   img.onload = () => {
@@ -1211,16 +1232,23 @@ async function editApplyToAllFrames() {
     if (btn) { btn.disabled = false; btn.innerHTML = '⧉ 全コマへ反映'; }
   }
 }
-function closeEdit() { document.getElementById('editModal').classList.remove('open'); _edit = null; }
+function closeEdit() {
+  document.getElementById('editModal').classList.remove('open');
+  _edit = null;
+  const sp = document.getElementById('editSelPanel'); if (sp) sp.style.display = 'none';
+  const fp = document.getElementById('editFloatPanel'); if (fp) fp.style.display = 'none';
+}
 function setEditTool(t) {
+  // 選択ツールから別ツールへ移るときは、選択のハイライトを片付ける
+  if (_edit && _edit.tool !== t && _edit.sel && t !== 'select') _editClearSelState();
   if (_edit) _edit.tool = t;
-  const map = { eraser: 'editEraserBtn', pen: 'editPenBtn', picker: 'editPickerBtn', wand: 'editWandBtn', lasso: 'editLassoBtn', hand: 'editHandBtn' };
+  const map = { eraser: 'editEraserBtn', pen: 'editPenBtn', picker: 'editPickerBtn', wand: 'editWandBtn', lasso: 'editLassoBtn', select: 'editSelectBtn', hand: 'editHandBtn' };
   for (const k in map) {
     const b = document.getElementById(map[k]);
     if (b) { b.classList.toggle('btn-primary', t === k); b.classList.toggle('btn-secondary', t !== k); }
   }
   const cv = document.getElementById('editCanvas');
-  if (cv) cv.style.cursor = (t === 'hand') ? 'grab' : (t === 'picker' ? 'copy' : (t === 'wand' ? 'cell' : 'crosshair'));
+  if (cv) cv.style.cursor = (t === 'hand') ? 'grab' : (t === 'picker' ? 'copy' : ((t === 'wand' || t === 'select') ? 'cell' : 'crosshair'));
 }
 
 // ===== 表示ズーム（画像データは一切変えない・CSS変形のみ）=====
@@ -1267,6 +1295,23 @@ function editDown(e) {
   if (e.button === 2) {
     _edit.panning = true;
     _edit.panStart = { x: e.clientX - _edit.view.ox, y: e.clientY - _edit.view.oy };
+    e.preventDefault();
+    return;
+  }
+  if (_edit.floating) {
+    // 📌貼り付け中：ドラッグで貼り付け画像を移動
+    const p = _editXY(e);
+    _edit.floDrag = { dx: _edit.floating.x - p.x, dy: _edit.floating.y - p.y };
+    e.preventDefault();
+    return;
+  }
+  if (_edit.tool === 'select') {
+    // 🎯範囲選択：クリック地点と同色の連結領域を「選択」（削除はしない）
+    const p = _editXY(e);
+    const px = Math.min(_edit.canvas.width - 1, Math.max(0, Math.round(p.x)));
+    const py = Math.min(_edit.canvas.height - 1, Math.max(0, Math.round(p.y)));
+    const tol = parseInt(document.getElementById('editWandTol').value, 10) || 45;
+    editSelectAt(px, py, tol);
     e.preventDefault();
     return;
   }
@@ -1333,6 +1378,14 @@ function editMove(e) {
     e.preventDefault();
     return;
   }
+  if (_edit.floating && _edit.floDrag) {
+    const p = _editXY(e);
+    _edit.floating.x = Math.round(p.x + _edit.floDrag.dx);
+    _edit.floating.y = Math.round(p.y + _edit.floDrag.dy);
+    _editDrawFloating();
+    e.preventDefault();
+    return;
+  }
   if (_edit.tool === 'lasso' && _edit.lassoing) {
     const p = _editXY(e); _edit.lassoPts.push(p);
     const ctx = _edit.ctx;
@@ -1351,6 +1404,7 @@ function editMove(e) {
 }
 function editUp() {
   if (!_edit) return;
+  if (_edit.floDrag) { _edit.floDrag = null; return; } // 貼り付け移動の終了
   if (_edit.tool === 'lasso' && _edit.lassoing) {
     _edit.lassoing = false;
     const ctx = _edit.ctx;
@@ -1398,7 +1452,173 @@ function floodEraseAt(ctx, w, h, sx, sy, tol) {
   ctx.putImageData(id, 0, 0);
   return true;
 }
-function editUndo() { if (_edit && _edit.history.length) { _edit.ctx.putImageData(_edit.history.pop(), 0, 0); _edit.scaleBase = null; } }
+
+// ===== 🎯 範囲選択（コピー／色替え／削除／貼り付け） =====
+// (px,py)と同色の連結領域を選択マスクにして、水色の縁でハイライト表示する
+function editSelectAt(px, py, tol) {
+  editFloatingCancel(); // 貼り付け途中なら片付ける
+  const w = _edit.canvas.width, h = _edit.canvas.height;
+  if (_edit.sel && _edit.selSnap) _edit.ctx.putImageData(_edit.selSnap, 0, 0); // 前のハイライトを消す
+  const snap = _edit.ctx.getImageData(0, 0, w, h);
+  const d = snap.data;
+  const si = (py * w + px) * 4;
+  const sr = d[si], sg = d[si + 1], sb = d[si + 2], sa = d[si + 3];
+  const t2 = tol * tol;
+  const sel = new Uint8Array(w * h);
+  const seen = new Uint8Array(w * h);
+  const stack = [py * w + px];
+  while (stack.length) {
+    const q = stack.pop();
+    if (seen[q]) continue; seen[q] = 1;
+    const i = q * 4;
+    if (Math.abs(d[i + 3] - sa) > 48) continue; // 透明⇄不透明の境目は越えない
+    const dr = d[i] - sr, dg = d[i + 1] - sg, db = d[i + 2] - sb;
+    if (dr * dr + dg * dg + db * db > t2) continue;
+    sel[q] = 1;
+    const x = q % w, y = (q / w) | 0;
+    if (x + 1 < w) stack.push(q + 1);
+    if (x > 0) stack.push(q - 1);
+    if (y + 1 < h) stack.push(q + w);
+    if (y > 0) stack.push(q - w);
+  }
+  let cnt = 0; for (let k = 0; k < sel.length; k++) cnt += sel[k];
+  if (!cnt) return;
+  _edit.sel = sel; _edit.selSnap = snap;
+  _editDrawSelHighlight();
+  document.getElementById('editSelPanel').style.display = 'flex';
+}
+function _editDrawSelHighlight() {
+  const { ctx, canvas, selSnap, sel } = _edit;
+  const w = canvas.width, h = canvas.height;
+  const id = new ImageData(new Uint8ClampedArray(selSnap.data), w, h);
+  const d = id.data;
+  for (let p = 0; p < w * h; p++) {
+    if (!sel[p]) continue;
+    const x = p % w, y = (p / w) | 0;
+    const edge = (x === 0 || !sel[p - 1]) || (x >= w - 1 || !sel[p + 1]) || (y === 0 || !sel[p - w]) || (y >= h - 1 || !sel[p + w]);
+    if (edge) { const i = p * 4; d[i] = 0; d[i + 1] = 180; d[i + 2] = 255; d[i + 3] = 255; }
+  }
+  ctx.putImageData(id, 0, 0);
+}
+function _editClearSelState() {
+  if (!_edit) return;
+  if (_edit.sel && _edit.selSnap) _edit.ctx.putImageData(_edit.selSnap, 0, 0); // ハイライト線を消して元に戻す
+  _edit.sel = null; _edit.selSnap = null;
+  const p = document.getElementById('editSelPanel'); if (p) p.style.display = 'none';
+}
+function editSelClear() { _editClearSelState(); }
+
+// 選択部分をコピー（切り抜いてクリップボードに保持）
+function editSelCopy() {
+  if (!_edit || !_edit.sel) return;
+  const { selSnap, canvas, sel } = _edit;
+  const w = canvas.width, h = canvas.height, sd = selSnap.data;
+  let minX = w, minY = h, maxX = -1, maxY = -1;
+  for (let p = 0; p < w * h; p++) { if (sel[p] && sd[p * 4 + 3] > 8) { const x = p % w, y = (p / w) | 0; if (x < minX) minX = x; if (x > maxX) maxX = x; if (y < minY) minY = y; if (y > maxY) maxY = y; } }
+  if (maxX < 0) { alert('選んだ範囲に絵がありません（透明な部分は貼り付けられません）'); return; }
+  const cw = maxX - minX + 1, ch = maxY - minY + 1;
+  const clip = document.createElement('canvas'); clip.width = cw; clip.height = ch;
+  const cctx = clip.getContext('2d');
+  const out = cctx.createImageData(cw, ch); const od = out.data;
+  for (let y = minY; y <= maxY; y++) for (let x = minX; x <= maxX; x++) {
+    const p = y * w + x;
+    if (sel[p]) { const si = p * 4, oi = ((y - minY) * cw + (x - minX)) * 4; od[oi] = sd[si]; od[oi + 1] = sd[si + 1]; od[oi + 2] = sd[si + 2]; od[oi + 3] = sd[si + 3]; }
+  }
+  cctx.putImageData(out, 0, 0);
+  _edit.clip = { canvas: clip, w: cw, h: ch, ox: minX, oy: minY };
+  const pb = document.getElementById('editPasteBtn'); if (pb) pb.disabled = false;
+  alert('コピーしました。「📌 貼り付け」を押すと貼れます（貼ったあとドラッグで位置を調整）。');
+}
+
+// 選択部分を「色」で塗り替え（明るさ・影は保ったまま色相・彩度だけ変える）
+function editSelRecolor() {
+  if (!_edit || !_edit.sel) return;
+  const w = _edit.canvas.width, h = _edit.canvas.height;
+  _edit.ctx.putImageData(_edit.selSnap, 0, 0); // ハイライト線を消してクリーンに
+  _editSaveHistory();                          // 色替え前を履歴へ（↩で戻せる）
+  const tgt = _hexToRgb(document.getElementById('editColor').value);
+  const th = _rgbToHsl(tgt.r, tgt.g, tgt.b);
+  const id = new ImageData(new Uint8ClampedArray(_edit.selSnap.data), w, h);
+  const d = id.data, sel = _edit.sel;
+  for (let p = 0; p < w * h; p++) {
+    if (!sel[p]) continue;
+    const i = p * 4;
+    if (d[i + 3] < 8) continue;
+    const hsl = _rgbToHsl(d[i], d[i + 1], d[i + 2]);
+    const rgb = _hslToRgb(th.h, th.s, hsl.l); // 明るさは元のまま
+    d[i] = rgb.r; d[i + 1] = rgb.g; d[i + 2] = rgb.b;
+  }
+  _edit.ctx.putImageData(id, 0, 0);
+  _edit.sel = null; _edit.selSnap = null;
+  document.getElementById('editSelPanel').style.display = 'none';
+}
+
+// 選択部分を消す
+function editSelDelete() {
+  if (!_edit || !_edit.sel) return;
+  const w = _edit.canvas.width, h = _edit.canvas.height;
+  _edit.ctx.putImageData(_edit.selSnap, 0, 0);
+  _editSaveHistory();
+  const id = new ImageData(new Uint8ClampedArray(_edit.selSnap.data), w, h);
+  const d = id.data, sel = _edit.sel;
+  for (let p = 0; p < w * h; p++) if (sel[p]) d[p * 4 + 3] = 0;
+  _edit.ctx.putImageData(id, 0, 0);
+  _edit.sel = null; _edit.selSnap = null;
+  document.getElementById('editSelPanel').style.display = 'none';
+}
+
+// 貼り付け（コピー済みの画像を浮かせてドラッグで移動→確定）
+function editSelPaste() {
+  if (!_edit || !_edit.clip) { alert('先に「🎯 範囲選択」で選んで「📋 コピー」してください。'); return; }
+  if (_edit.sel && _edit.selSnap) { _edit.ctx.putImageData(_edit.selSnap, 0, 0); _edit.sel = null; _edit.selSnap = null; document.getElementById('editSelPanel').style.display = 'none'; }
+  _editSaveHistory(); // 貼り付け前を履歴へ
+  const w = _edit.canvas.width, h = _edit.canvas.height;
+  _edit.baseSnap = _edit.ctx.getImageData(0, 0, w, h);
+  const cl = _edit.clip;
+  let x = (cl.ox || 0) + 20, y = (cl.oy || 0) + 20;
+  if (x + cl.w > w) x = Math.max(0, (w - cl.w) / 2);
+  if (y + cl.h > h) y = Math.max(0, (h - cl.h) / 2);
+  _edit.floating = { img: cl.canvas, w: cl.w, h: cl.h, x: Math.round(x), y: Math.round(y) };
+  _editDrawFloating();
+  document.getElementById('editFloatPanel').style.display = 'flex';
+  setEditTool('select'); // ドラッグで動かせるツールに
+}
+function _editDrawFloating() {
+  if (!_edit || !_edit.floating || !_edit.baseSnap) return;
+  const ctx = _edit.ctx;
+  ctx.putImageData(_edit.baseSnap, 0, 0);
+  ctx.drawImage(_edit.floating.img, _edit.floating.x, _edit.floating.y);
+}
+function editFloatingCommit() {
+  if (!_edit || !_edit.floating) return;
+  _editDrawFloating(); // 現在位置で焼き込み（既に描画済み）
+  _edit.floating = null; _edit.baseSnap = null; _edit.floDrag = null;
+  const p = document.getElementById('editFloatPanel'); if (p) p.style.display = 'none';
+}
+function editFloatingCancel() {
+  if (!_edit || !_edit.floating) return;
+  if (_edit.baseSnap) _edit.ctx.putImageData(_edit.baseSnap, 0, 0);
+  _edit.floating = null; _edit.baseSnap = null; _edit.floDrag = null;
+  const p = document.getElementById('editFloatPanel'); if (p) p.style.display = 'none';
+}
+
+// RGB⇔HSL（色替え用）
+function _hexToRgb(hex) { hex = (hex || '#000000').replace('#', ''); return { r: parseInt(hex.slice(0, 2), 16) || 0, g: parseInt(hex.slice(2, 4), 16) || 0, b: parseInt(hex.slice(4, 6), 16) || 0 }; }
+function _rgbToHsl(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b); let h, s, l = (mx + mn) / 2;
+  if (mx === mn) { h = s = 0; }
+  else { const dd = mx - mn; s = l > 0.5 ? dd / (2 - mx - mn) : dd / (mx + mn); switch (mx) { case r: h = (g - b) / dd + (g < b ? 6 : 0); break; case g: h = (b - r) / dd + 2; break; default: h = (r - g) / dd + 4; } h /= 6; }
+  return { h, s, l };
+}
+function _hslToRgb(h, s, l) {
+  let r, g, b;
+  if (s === 0) { r = g = b = l; }
+  else { const q = l < 0.5 ? l * (1 + s) : l + s - l * s; const p = 2 * l - q; const f = (t) => { if (t < 0) t += 1; if (t > 1) t -= 1; if (t < 1 / 6) return p + (q - p) * 6 * t; if (t < 1 / 2) return q; if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6; return p; }; r = f(h + 1 / 3); g = f(h); b = f(h - 1 / 3); }
+  return { r: Math.round(r * 255), g: Math.round(g * 255), b: Math.round(b * 255) };
+}
+
+function editUndo() { if (_edit && _edit.history.length) { _edit.ctx.putImageData(_edit.history.pop(), 0, 0); _edit.scaleBase = null; _edit.sel = null; _edit.selSnap = null; const p = document.getElementById('editSelPanel'); if (p) p.style.display = 'none'; } }
 async function editRemoveWhite(mode) {
   if (!_edit) return;
   _editSaveHistory();
@@ -1411,6 +1631,9 @@ async function editRemoveWhite(mode) {
 }
 async function applyEdit() {
   if (!_edit) return;
+  // 保存前に、貼り付け途中は確定・選択ハイライトの線は除去（焼き込まれないように）
+  if (_edit.floating) editFloatingCommit();
+  else if (_edit.sel && _edit.selSnap) _editClearSelState();
   const ei = _edit.i;
   const c = state.captions[ei];
   const cv = _edit.canvas;
