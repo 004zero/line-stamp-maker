@@ -236,7 +236,7 @@
 </head>
 <body>
   <div class="header">
-    <h1>🟢 LINEスタンプメーカー <span style="font-size:10px;font-weight:400;opacity:0.75">v2026.07.07f</span></h1>
+    <h1>🟢 LINEスタンプメーカー <span style="font-size:10px;font-weight:400;opacity:0.75">v2026.07.07g</span></h1>
     <div class="header-actions">
       <span class="api-status" id="apiStatus">API未設定</span>
       <button class="btn btn-secondary btn-sm" onclick="openSettings()">⚙ 設定</button>
@@ -282,6 +282,12 @@
         <label class="form-label">口調・話し方（複数選択OK）</label>
         <div class="tone-row" id="toneRow"></div>
         <div style="font-size:11px;color:#888;margin-top:6px">複数選ぶとスタンプごとに口調をミックスします（例：敬語＋タメ口）。未選択ならカジュアルなタメ口になります。</div>
+      </div>
+      <div class="form-group">
+        <label style="font-size:12px;color:#555;display:inline-flex;align-items:flex-start;gap:7px;cursor:pointer">
+          <input type="checkbox" id="noCaptionChk" style="margin-top:2px" onchange="state.noCaption=this.checked; save();">
+          <span>🅰 <strong>セリフの文字を画像に入れない</strong>（カスタムスタンプ・メッセージスタンプ用：購入者があとから文字を入れる空きスペースを上部に残して生成します）</span>
+        </label>
       </div>
       <div class="form-group">
         <label class="form-label">セリフの決め方</label>
@@ -377,6 +383,8 @@
         <button class="btn btn-secondary btn-sm" onclick="downloadZip()" id="zipBtn" disabled>📦 ZIPでまとめてDL</button>
         <button class="btn btn-secondary btn-sm" onclick="downloadAnimZip()" id="animZipBtn" disabled title="🎞で動きを付けたスタンプを、LINEアニメーションスタンプ用のZIP（APNG）にまとめます">🎞 アニメスタンプZIP</button>
         <button class="btn btn-secondary btn-sm" onclick="downloadPopupZip()" id="popupZipBtn" disabled title="トーク画面全体に大きく飛び出す「ポップアップスタンプ」用の素材（静止スタンプ＋480px APNG）を書き出します">🎉 ポップアップ用ZIP</button>
+        <button class="btn btn-secondary btn-sm" onclick="downloadEffectZip()" id="effectZipBtn" disabled title="トーク背景全体にアニメが流れる「エフェクトスタンプ」用の素材（静止スタンプ＋480px APNG）を書き出します">💫 エフェクト用ZIP</button>
+        <button class="btn btn-secondary btn-sm" onclick="downloadBigZip()" id="bigZipBtn" disabled title="通常より大きく表示される「BIGスタンプ」用ZIP（静止画396×660px）を書き出します">🐘 BIGスタンプZIP</button>
         <label style="font-size:12px;color:#555;display:inline-flex;align-items:center;gap:5px;cursor:pointer;border:1.5px solid #ddd;border-radius:7px;padding:7px 10px" title="オフにするとAPI課金される生成を止めます（切り抜きの直接使用はオフでも動きます）">
           <input type="checkbox" id="apiEnabledChk" checked onchange="state.apiEnabled=this.checked; save();">
           🤖 AI生成(API)を使う
@@ -398,9 +406,11 @@
         <div class="hint" style="background:#fdf3e7;border-left-color:#e67e22;color:#8a5a20">
           <strong>⚠ 大事：ZIPの種類と、LINEで登録した「スタンプタイプ」は一致が必要です</strong>
           LINE Creators Marketの<strong>新規登録のとき最初に選ぶタイプ</strong>に合わせて使い分けてください（タイプは<strong>後から変更できません</strong>。違う組み合わせだと全部Errorになります）。<br>
-          📦 ZIPでまとめてDL → <strong>スタンプ</strong>（静止画）タイプ用<br>
+          📦 ZIPでまとめてDL → <strong>スタンプ</strong>（静止画）タイプ用。<strong>カスタム／メッセージスタンプ</strong>にもこれを使います（①の「🅰 文字を入れない」をONにして生成した画像がおすすめ）<br>
+          🐘 BIGスタンプZIP → <strong>BIGスタンプ</strong>タイプ用（大きく表示・静止画396×660）<br>
           🎞 アニメスタンプZIP → <strong>アニメーションスタンプ</strong>タイプ用<br>
-          🎉 ポップアップ用ZIP → <strong>ポップアップスタンプ</strong>タイプ用
+          🎉 ポップアップ用ZIP → <strong>ポップアップスタンプ</strong>タイプ用（画面全体に飛び出す）<br>
+          💫 エフェクト用ZIP → <strong>エフェクトスタンプ</strong>タイプ用（トーク背景にアニメ）
         </div>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
           <select id="mainSrcSelect" class="form-select" style="max-width:280px"></select>
@@ -640,6 +650,7 @@ const state = {
   refStrength: 'high', // 'exact' | 'high' | 'medium' | 'low' — how closely to follow the reference
   storeTextLangs: ['ja', 'en'], // 申請用テキストを作る言語（ja/enは必須）
   storeTexts: {},               // { ja: {title, description}, en: {...}, ... }
+  noCaption: false,             // true=セリフ文字を画像に入れない（カスタム/メッセージスタンプ用）
 };
 
 function load() {
@@ -659,6 +670,7 @@ function load() {
     state.apiEnabled = d.apiEnabled !== false; // 既定ON
     state.storeTextLangs = Array.isArray(d.storeTextLangs) && d.storeTextLangs.length ? d.storeTextLangs : ['ja', 'en'];
     state.storeTexts = d.storeTexts || {};
+    state.noCaption = d.noCaption === true;
     state.captions  = (d.captions || []).map(c => ({
       text: c.text || '',
       emotion: c.emotion || '',
@@ -697,6 +709,7 @@ function save() {
       apiEnabled: state.apiEnabled,
       storeTextLangs: state.storeTextLangs,
       storeTexts: state.storeTexts,
+      noCaption: state.noCaption,
       captions: lightCaptions,
     }));
   } catch (e) {
@@ -794,6 +807,8 @@ function bindInputs() {
   if (bg) bg.checked = state.bgRemove !== false;
   const ae = document.getElementById('apiEnabledChk');
   if (ae) ae.checked = state.apiEnabled !== false;
+  const nc = document.getElementById('noCaptionChk');
+  if (nc) nc.checked = state.noCaption === true;
   renderTonePills();
   updateStyleHint();
 }
@@ -1868,7 +1883,9 @@ ${sameMode ? '' : `Emotion / facial expression: ${c.emotion}.
 Pose / composition: ${c.composition}.`}
 ${customLine}
 
-${sameMode ? '' : `Caption text: include the Japanese text "${c.text}" rendered as a clean sticker caption inside the image. The Japanese characters must be spelled correctly and clearly readable. Style the caption to match the overall art style above (do not default to a generic comic font if the style is e.g. watercolor or photorealistic).`}
+${sameMode ? '' : (state.noCaption
+  ? `IMPORTANT — NO TEXT: Do NOT render any text, letters, captions, or speech bubbles in the image. Leave generous clear empty space in the upper part of the image (about 25% of the height) where the buyer's custom text will be added later (custom/message sticker).`
+  : `Caption text: include the Japanese text "${c.text}" rendered as a clean sticker caption inside the image. The Japanese characters must be spelled correctly and clearly readable. Style the caption to match the overall art style above (do not default to a generic comic font if the style is e.g. watercolor or photorealistic).`)}
 
 ${photoLike ? '' : 'Exaggerate the expression for sticker readability. Leave generous padding/margin around the subject.'}
 Square 1:1 composition. NO copyrighted characters or brand logos. NO violence or sexual content.`;
@@ -2334,6 +2351,10 @@ function refreshZipBtn() {
   if (ab) ab.disabled = !state.captions.some(c => c.anim && c.anim.apng);
   const pb = document.getElementById('popupZipBtn');
   if (pb) pb.disabled = !state.captions.some(c => c.anim && c.anim.apng);
+  const eb = document.getElementById('effectZipBtn');
+  if (eb) eb.disabled = !state.captions.some(c => c.anim && c.anim.apng);
+  const bb = document.getElementById('bigZipBtn');
+  if (bb) bb.disabled = !anyDone;
   refreshFolderBtn();
   refreshSaveBtn();
 }
@@ -3494,12 +3515,21 @@ async function buildPopupApng(c) {
   return buildStampApng(c.image, c.anim.effect, sec, 480, 480, plays);
 }
 
-async function downloadPopupZip() {
+async function downloadPopupZip() { return downloadOverlayZip('popup'); }
+async function downloadEffectZip() { return downloadOverlayZip('effect'); }
+
+// ポップアップ／エフェクト共通の書き出し。
+// どちらもLINE規格は同じ（静止スタンプ370×320 ＋ APNG480px・5〜20コマ・合計3秒以内・ループ1〜3回）。
+// 違いは表示のされ方（ポップアップ=画面全体に飛び出す／エフェクト=トーク背景でアニメ再生）と申請時のタイプ選択。
+async function downloadOverlayZip(kind) {
+  const conf = kind === 'effect'
+    ? { btnId: 'effectZipBtn', btnLabel: '💫 エフェクト用ZIP', folder: 'effect', mainName: 'effect_main.png', typeName: 'エフェクトスタンプ', desc: 'トーク背景全体に出るエフェクト画像' }
+    : { btnId: 'popupZipBtn', btnLabel: '🎉 ポップアップ用ZIP', folder: 'popup', mainName: 'popup_main.png', typeName: 'ポップアップスタンプ', desc: '画面全体に大きく出るポップアップ画像' };
   const anims = state.captions.map((c, i) => ({ c, i })).filter(o => o.c.anim && o.c.image);
-  if (!anims.length) { alert('ポップアップスタンプには動きが必要です。\n先に各スタンプの🎞ボタンで動きを付けてください。'); return; }
+  if (!anims.length) { alert(`${conf.typeName}には動きが必要です。\n先に各スタンプの🎞ボタンで動きを付けてください。`); return; }
   const still = state.captions.filter(c => c.image && !c.anim).length;
-  if (still && !confirm(`アニメ未設定のスタンプが ${still}個 あります（ポップアップZIPには入りません）。\nこのまま ${anims.length}個 で作りますか？`)) return;
-  const btn = document.getElementById('popupZipBtn');
+  if (still && !confirm(`アニメ未設定のスタンプが ${still}個 あります（このZIPには入りません）。\nこのまま ${anims.length}個 で作りますか？`)) return;
+  const btn = document.getElementById(conf.btnId);
   if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner spinner-dark"></span>作成中…'; }
   try {
     const zip = new JSZip();
@@ -3510,33 +3540,74 @@ async function downloadPopupZip() {
       // トークに表示される通常のスタンプ画像（静止PNG）
       const staticB64 = await sizeImage(b64src(o.c.image), LINE_SIZE.stampW, LINE_SIZE.stampH, false);
       zip.file(`stamp/${nn}.png`, staticB64, { base64: true });
-      // 画面全体に出るポップアップ画像（APNG 480×480）
+      // 画面全体/背景に出るアニメ画像（APNG 480×480）
       const pop = await buildPopupApng(o.c);
-      zip.file(`popup/${nn}.png`, pop.b64, { base64: true });
+      zip.file(`${conf.folder}/${nn}.png`, pop.b64, { base64: true });
     }
-    // main（静止240×240）・ポップアップmain（APNG480）・tab（静止96×74）
+    // main（静止240×240）・アニメmain（APNG480）・tab（静止96×74）
     const sel = document.getElementById('mainSrcSelect');
     let mi = sel ? parseInt(sel.value, 10) : NaN;
     if (isNaN(mi) || !(state.captions[mi] && state.captions[mi].anim)) mi = anims[0].i;
     const mc = state.captions[mi];
     zip.file('main.png', await sizeImage(b64src(mc.image), LINE_SIZE.mainW, LINE_SIZE.mainH, true), { base64: true });
     const popMain = await buildPopupApng(mc);
-    zip.file('popup_main.png', popMain.b64, { base64: true });
+    zip.file(conf.mainName, popMain.b64, { base64: true });
     zip.file('tab.png', await sizeImage(b64src(mc.image), LINE_SIZE.tabW, LINE_SIZE.tabH, true), { base64: true });
     const blob = await zip.generateAsync({ type: 'blob' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `line-popup-stamps_${safeName(state.theme)}_${new Date().toISOString().slice(0, 10)}.zip`;
+    a.download = `line-${kind}-stamps_${safeName(state.theme)}_${new Date().toISOString().slice(0, 10)}.zip`;
     a.click();
     URL.revokeObjectURL(url);
-    let msg = `✓ ポップアップスタンプ用の素材一式（${anims.length}個分）を書き出しました。\n\n【中身】\n・stamp/01.png〜 … トークに出る通常スタンプ（静止画）\n・popup/01.png〜 … 画面全体に大きく出るアニメ（APNG 480px）\n・main.png / popup_main.png / tab.png\n\n【申請方法】LINE Creators Marketで新規スタンプ作成時に「ポップアップスタンプ」を選び、フォームの指示に従って スタンプ画像とポップアップ画像をそれぞれアップロードしてください。`;
-    if (![8, 16, 24].includes(anims.length)) msg += `\n\n⚠ 現在 ${anims.length}個 です。ポップアップスタンプは【8個・16個・24個】での申請が必要です。`;
+    let msg = `✓ ${conf.typeName}用の素材一式（${anims.length}個分）を書き出しました。\n\n【中身】\n・stamp/01.png〜 … トークに出る通常スタンプ（静止画）\n・${conf.folder}/01.png〜 … ${conf.desc}（APNG 480px）\n・main.png / ${conf.mainName} / tab.png\n\n【申請方法】LINE Creators Marketの新規登録でスタンプタイプ【${conf.typeName}】を選び、フォームの指示に従って スタンプ画像と${conf.typeName.replace('スタンプ', '')}画像をそれぞれアップロードしてください（タイプは後から変更できません）。`;
+    if (![8, 16, 24].includes(anims.length)) msg += `\n\n⚠ 現在 ${anims.length}個 です。${conf.typeName}は【8個・16個・24個】での申請が必要です。`;
     alert(msg);
   } catch (e) {
-    alert('ポップアップZIPの作成に失敗しました：' + e.message);
+    alert(`${conf.typeName}用ZIPの作成に失敗しました：` + e.message);
   } finally {
-    if (btn) { btn.disabled = false; btn.innerHTML = '🎉 ポップアップ用ZIP'; }
+    if (btn) { btn.disabled = false; btn.innerHTML = conf.btnLabel; }
+    refreshZipBtn();
+  }
+}
+
+// BIGスタンプ（大きく表示される静止画）用ZIP
+// LINE規格：スタンプ画像 横80〜396px・縦524〜660px（静止PNG・偶数px）＋ main240×240 ＋ tab96×74
+async function downloadBigZip() {
+  const done = state.captions.filter(c => c.image);
+  if (!done.length) { alert('完成した画像がありません'); return; }
+  const btn = document.getElementById('bigZipBtn');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner spinner-dark"></span>作成中…'; }
+  try {
+    const zip = new JSZip();
+    let n = 0;
+    for (const c of state.captions) {
+      if (!c.image) continue;
+      n++;
+      // 396×660の透過キャンバスに中央配置（縦の最低524pxを確実に満たす）
+      const b64 = await sizeImage(b64src(c.image), 396, 660, true);
+      zip.file(`${String(n).padStart(2, '0')}.png`, b64, { base64: true });
+    }
+    const sel = document.getElementById('mainSrcSelect');
+    let mi = sel ? parseInt(sel.value, 10) : NaN;
+    if (isNaN(mi) || !(state.captions[mi] && state.captions[mi].image)) mi = state.captions.findIndex(c => c.image);
+    const mc = state.captions[mi];
+    zip.file('main.png', await sizeImage(b64src(mc.image), LINE_SIZE.mainW, LINE_SIZE.mainH, true), { base64: true });
+    zip.file('tab.png', await sizeImage(b64src(mc.image), LINE_SIZE.tabW, LINE_SIZE.tabH, true), { base64: true });
+    const blob = await zip.generateAsync({ type: 'blob' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `line-big-stamps_${safeName(state.theme)}_${new Date().toISOString().slice(0, 10)}.zip`;
+    a.click();
+    URL.revokeObjectURL(url);
+    let msg = `✓ BIGスタンプ用ZIP（${n}個分・396×660px）を書き出しました。\n\n【申請方法】LINE Creators Marketの新規登録でスタンプタイプ【BIGスタンプ】を選んだアイテムにアップしてください（タイプは後から変更できません）。`;
+    if (![8, 16, 24, 32, 40].includes(n)) msg += `\n\n⚠ 現在 ${n}個 です。BIGスタンプは【8/16/24/32/40個】での申請が必要です。`;
+    alert(msg);
+  } catch (e) {
+    alert('BIGスタンプZIPの作成に失敗しました：' + e.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '🐘 BIGスタンプZIP'; }
     refreshZipBtn();
   }
 }
