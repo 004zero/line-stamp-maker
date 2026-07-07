@@ -241,7 +241,7 @@
 </head>
 <body>
   <div class="header">
-    <h1>🟢 LINEスタンプメーカー <span style="font-size:10px;font-weight:400;opacity:0.75">v2026.07.07s</span></h1>
+    <h1>🟢 LINEスタンプメーカー <span style="font-size:10px;font-weight:400;opacity:0.75">v2026.07.07t</span></h1>
     <div class="header-actions">
       <span class="api-status" id="apiStatus">API未設定</span>
       <button class="btn btn-secondary btn-sm" onclick="openSettings()">⚙ 設定</button>
@@ -4457,23 +4457,36 @@ async function importAllData(e) {
 }
 
 // ========== History UI ==========
+// 保存まわりの画面内メッセージ（ブラウザのダイアログ抑制の影響を受けないようDOMで表示）
+function _setSaveMsg(text, ok) {
+  const area = document.getElementById('historyArea');
+  if (!area) return;
+  let m = document.getElementById('saveMsg');
+  if (!m) { m = document.createElement('div'); m.id = 'saveMsg'; area.parentNode.insertBefore(m, area); }
+  m.textContent = text;
+  m.style.cssText = `font-size:12px;font-weight:700;margin-bottom:8px;padding:8px 11px;border-radius:6px;background:${ok ? '#e7f8ee' : '#fdecea'};color:${ok ? '#06843c' : '#c0392b'}`;
+}
+
+// ダイアログ（prompt/alert）に頼らず、押したら即・確実に保存する。名前は「テーマ＋日時」を自動で付ける。
 async function saveCurrentSet() {
-  if (!state.captions.length) { alert('保存する内容がありません'); return; }
+  if (!state.captions.length) { _setSaveMsg('保存する内容がありません（先にセリフ案を作って画像を用意してください）', false); return; }
   const def = (state.theme || '無題') + ' ' + new Date().toLocaleString('ja-JP', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
-  const name = prompt('セット名を入力してください', def);
-  if (name === null) return;
+  const btn = document.getElementById('saveSetBtn');
+  const orig = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>保存中…'; }
   try {
-    await idbSaveSet(name.trim() || def);
+    await idbSaveSet(def);
     await renderHistory();
-    // 保存したものが見えるように一覧までスクロール
+    _setSaveMsg('✓ 上の一覧に保存しました：「' + def + '」（このブラウザ内に保存。パソコンにも控えるなら「💾 全部バックアップ」）', true);
     const area = document.getElementById('historyArea');
     if (area) area.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    alert('✓ 上の「📚 保存済みスタンプセット」に保存しました。\n（この一覧はこのブラウザの中に保存されます。パソコンにも控えを取るなら「💾 全部バックアップ」を使ってください）');
   } catch (e) {
     const q = /quota|exceeded|storage/i.test((e && (e.name + ' ' + e.message)) || '');
-    alert(q
-      ? '保存できませんでした。ブラウザの保存容量がいっぱいのようです。\n\n「💾 全部バックアップ」でパソコンに控えを取ってから、いらない保存セットを🗑で減らして、もう一度お試しください。'
-      : ('保存に失敗：' + (e && e.message ? e.message : e)));
+    _setSaveMsg(q
+      ? '⚠ ブラウザの保存容量がいっぱいです。「💾 全部バックアップ」で控えを取り、いらない保存セットを🗑で減らしてから、もう一度お試しください。'
+      : ('保存に失敗しました：' + (e && e.message ? e.message : e)), false);
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = orig; }
   }
 }
 
