@@ -102,6 +102,11 @@
     /* Reference image upload */
     .ref-zone { display: flex; align-items: center; gap: 14px; padding: 12px; border: 2px dashed #ccc; border-radius: 8px; background: #fafafa; transition: all 0.15s; }
     .ref-zone.has-image { border-style: solid; border-color: #06c755; background: #f5fdf8; }
+    /* 参考画像が入ったら縦積みに：サムネイルは横並びで折り返し、説明文・ボタンはその下（多数でも崩れない） */
+    .ref-zone.has-image { flex-direction: column; align-items: stretch; }
+    .ref-zone.has-image .ref-thumbs { width: 100%; max-height: 260px; overflow-y: auto; }
+    .ref-zone.has-image .ref-info { text-align: left; }
+    .ref-zone.has-image .ref-actions { justify-content: flex-start; }
     .ref-zone.dragover { border-color: #06c755; background: #e7f8ee; }
     .ref-zone .ref-thumbs { display: flex; flex-wrap: wrap; gap: 8px; flex-shrink: 0; align-items: flex-start; }
     .ref-zone .ref-thumb { position: relative; width: 80px; height: 80px; border-radius: 6px; background: repeating-conic-gradient(#f5f5f5 0% 25%, white 0% 50%) 50% / 12px 12px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; border: 1px solid #ddd; }
@@ -236,7 +241,7 @@
 </head>
 <body>
   <div class="header">
-    <h1>🟢 LINEスタンプメーカー <span style="font-size:10px;font-weight:400;opacity:0.75">v2026.07.07o</span></h1>
+    <h1>🟢 LINEスタンプメーカー <span style="font-size:10px;font-weight:400;opacity:0.75">v2026.07.07p</span></h1>
     <div class="header-actions">
       <span class="api-status" id="apiStatus">API未設定</span>
       <button class="btn btn-secondary btn-sm" onclick="openSettings()">⚙ 設定</button>
@@ -895,7 +900,8 @@ function updateStyleHint() {
 }
 
 // ========== Reference image (global multi + per-stamp) ==========
-const MAX_REF_IMAGES = 16; // gpt-image-1 edits がAPIで受け付ける上限（枚数が多いほどAI生成は遅く/高くなる点に注意）
+const MAX_REF_IMAGES = 50;   // 登録できる参考画像の上限（貯めておく用）
+const API_REF_LIMIT = 12;    // 1回のAI生成でAPIに送る参考画像の最大枚数（多すぎると遅く・高く・API上限に達するため）
 
 function readFileAsDataURL(file) {
   return new Promise((res, rej) => {
@@ -1017,7 +1023,8 @@ function renderRefImage() {
       h += `<div class="ref-thumb" style="cursor:pointer" onclick="document.getElementById('refFile').click()" title="画像を追加"><span class="ref-thumb-empty">＋</span></div>`;
     }
     thumbs.innerHTML = h;
-    info.innerHTML = `<strong>📎 ${imgs.length}枚</strong>の参考画像（最大${MAX_REF_IMAGES}枚）をベースに全スタンプを生成します<br><span style="color:#888">💡 サムネイルを<strong>クリックするとその画像から切り抜き</strong>できます ／ 個別カードの指定が優先 ／ ※AI生成時は枚数が多いほど遅く・高くなります</span>`;
+    const over = imgs.length > API_REF_LIMIT;
+    info.innerHTML = `<strong>📎 ${imgs.length}枚</strong>の参考画像（最大${MAX_REF_IMAGES}枚）をベースに全スタンプを生成します<br><span style="color:#888">💡 サムネイルを<strong>クリックするとその画像から切り抜き</strong>できます ／ 個別カードの指定が優先 ／ ※AI生成時は枚数が多いほど遅く・高くなります</span>${over ? `<br><span style="color:#c0392b">⚠ AI生成に使うのは<strong>先頭${API_REF_LIMIT}枚</strong>までです（送りすぎ防止）。たくさん登録できますが、実際に使いたいキャラは前の方に置いてください。</span>` : ''}`;
     clr.style.display = '';
     zone.classList.add('has-image');
   } else {
@@ -2661,7 +2668,7 @@ async function generateOneImage(i) {
 
   const refBlobs = (c.refImage && c.refImage.blob)
     ? [c.refImage.blob]
-    : (state.refImages || []).map(im => im.blob).filter(Boolean);
+    : (state.refImages || []).map(im => im.blob).filter(Boolean).slice(0, API_REF_LIMIT); // 送りすぎ防止
   const useEdit = refBlobs.length > 0;
 
   try {
