@@ -241,7 +241,7 @@
 </head>
 <body>
   <div class="header">
-    <h1>🟢 LINEスタンプメーカー <span style="font-size:10px;font-weight:400;opacity:0.75">v2026.07.07r</span></h1>
+    <h1>🟢 LINEスタンプメーカー <span style="font-size:10px;font-weight:400;opacity:0.75">v2026.07.07s</span></h1>
     <div class="header-actions">
       <span class="api-status" id="apiStatus">API未設定</span>
       <button class="btn btn-secondary btn-sm" onclick="openSettings()">⚙ 設定</button>
@@ -4082,8 +4082,8 @@ async function downloadEffectZip() { return downloadOverlayZip('effect'); }
 // 違いは表示のされ方（ポップアップ=画面全体に飛び出す／エフェクト=トーク背景でアニメ再生）と申請時のタイプ選択。
 async function downloadOverlayZip(kind) {
   const conf = kind === 'effect'
-    ? { btnId: 'effectZipBtn', btnLabel: '💫 エフェクト用ZIP', folder: 'effect', mainName: 'effect_main.png', typeName: 'エフェクトスタンプ', desc: 'トーク背景全体に出るエフェクト画像' }
-    : { btnId: 'popupZipBtn', btnLabel: '🎉 ポップアップ用ZIP', folder: 'popup', mainName: 'popup_main.png', typeName: 'ポップアップスタンプ', desc: '画面全体に大きく出るポップアップ画像' };
+    ? { btnId: 'effectZipBtn', btnLabel: '💫 エフェクト用ZIP', suffix: 'effect', typeName: 'エフェクトスタンプ', desc: 'トーク背景全体に出るエフェクト画像' }
+    : { btnId: 'popupZipBtn', btnLabel: '🎉 ポップアップ用ZIP', suffix: 'popup', typeName: 'ポップアップスタンプ', desc: '画面全体に大きく出るポップアップ画像' };
   const anims = state.captions.map((c, i) => ({ c, i })).filter(o => o.c.anim && o.c.image);
   if (!anims.length) { alert(`${conf.typeName}には動きが必要です。\n先に各スタンプの🎞ボタンで動きを付けてください。`); return; }
   const still = state.captions.filter(c => c.image && !c.anim).length;
@@ -4096,12 +4096,13 @@ async function downloadOverlayZip(kind) {
     for (const o of anims) {
       n++;
       const nn = String(n).padStart(2, '0');
-      // トークに表示される通常のスタンプ画像（静止PNG）
+      // LINEはフォルダ不可・ルート直下に決まった名前で入れる必要がある
+      // トークに表示される通常のスタンプ画像（静止PNG）＝ 01.png
       const staticB64 = await sizeImage(b64src(o.c.image), LINE_SIZE.stampW, LINE_SIZE.stampH, false);
-      zip.file(`stamp/${nn}.png`, staticB64, { base64: true });
-      // 画面全体/背景に出るアニメ画像（APNG 480×480）
+      zip.file(`${nn}.png`, staticB64, { base64: true });
+      // 画面全体/背景に出るアニメ画像（APNG 480×480）＝ 01_popup.png / 01_effect.png
       const pop = await buildPopupApng(o.c);
-      zip.file(`${conf.folder}/${nn}.png`, pop.b64, { base64: true });
+      zip.file(`${nn}_${conf.suffix}.png`, pop.b64, { base64: true });
     }
     // main（静止240×240）・アニメmain（APNG480）・tab（静止96×74）
     const sel = document.getElementById('mainSrcSelect');
@@ -4110,7 +4111,7 @@ async function downloadOverlayZip(kind) {
     const mc = state.captions[mi];
     zip.file('main.png', await sizeImage(b64src(mc.image), LINE_SIZE.mainW, LINE_SIZE.mainH, true), { base64: true });
     const popMain = await buildPopupApng(mc);
-    zip.file(conf.mainName, popMain.b64, { base64: true });
+    zip.file(`main_${conf.suffix}.png`, popMain.b64, { base64: true }); // main_popup.png / main_effect.png
     zip.file('tab.png', await sizeImage(b64src(mc.image), LINE_SIZE.tabW, LINE_SIZE.tabH, true), { base64: true });
     const blob = await zip.generateAsync({ type: 'blob' });
     const url = URL.createObjectURL(blob);
@@ -4119,7 +4120,7 @@ async function downloadOverlayZip(kind) {
     a.download = `line-${kind}-stamps_${safeName(state.theme)}_${new Date().toISOString().slice(0, 10)}.zip`;
     a.click();
     URL.revokeObjectURL(url);
-    let msg = `✓ ${conf.typeName}用の素材一式（${anims.length}個分）を書き出しました。\n\n【中身】\n・stamp/01.png〜 … トークに出る通常スタンプ（静止画）\n・${conf.folder}/01.png〜 … ${conf.desc}（APNG 480px）\n・main.png / ${conf.mainName} / tab.png\n\n【申請方法】LINE Creators Marketの新規登録でスタンプタイプ【${conf.typeName}】を選び、フォームの指示に従って スタンプ画像と${conf.typeName.replace('スタンプ', '')}画像をそれぞれアップロードしてください（タイプは後から変更できません）。`;
+    let msg = `✓ ${conf.typeName}用の素材一式（${anims.length}個分）を書き出しました。\n\n【中身】（LINEの決まりでフォルダなし・すべてルート直下）\n・01.png〜 … トークに出る通常スタンプ（静止画）\n・01_${conf.suffix}.png〜 … ${conf.desc}（APNG 480px）\n・main.png / main_${conf.suffix}.png / tab.png\n\n【申請方法】LINE Creators Marketの新規登録でスタンプタイプ【${conf.typeName}】を選び、「ZIPファイル アップロード」でこのZIPをそのまま入れてください（タイプは後から変更できません）。`;
     if (![8, 16, 24].includes(anims.length)) msg += `\n\n⚠ 現在 ${anims.length}個 です。${conf.typeName}は【8個・16個・24個】での申請が必要です。`;
     alert(msg);
   } catch (e) {
