@@ -941,15 +941,39 @@ function readFileAsDataURL(file) {
 
 async function onRefFile(e) {
   const files = Array.from(e.target.files || []);
-  for (const f of files) await addRefImageFromFile(f);
+  for (const f of files) await addRefFileOrZip(f);
   e.target.value = '';
 }
 
 async function onRefDrop(e) {
   e.preventDefault();
   document.getElementById('refZone').classList.remove('dragover');
-  const files = Array.from(e.dataTransfer.files || []).filter(f => f.type.startsWith('image/'));
-  for (const f of files) await addRefImageFromFile(f);
+  const files = Array.from(e.dataTransfer.files || []);
+  for (const f of files) await addRefFileOrZip(f);
+}
+
+// ZIPなら中の画像を展開して取り込む。画像ならそのまま。
+async function addRefFileOrZip(file) {
+  const isZip = /\.zip$/i.test(file.name) || file.type === 'application/zip' || file.type === 'application/x-zip-compressed';
+  if (!isZip) { await addRefImageFromFile(file); return; }
+  try {
+    const zip = await JSZip.loadAsync(file);
+    const entries = Object.values(zip.files)
+      .filter(en => !en.dir && /\.(png|jpe?g|webp|gif|bmp)$/i.test(en.name))
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+    if (!entries.length) { alert('ZIPの中に画像が見つかりませんでした（PNG/JPG/WebP）'); return; }
+    let added = 0;
+    for (const en of entries) {
+      if (state.refImages.length >= MAX_REF_IMAGES) break;
+      const blob = await en.async('blob');
+      const imgFile = new File([blob], en.name.split('/').pop(), { type: blob.type || 'image/png' });
+      await addRefImageFromFile(imgFile);
+      added++;
+    }
+    if (entries.length > added) alert(`ZIPから${added}枚を取り込みました（参考画像は最大${MAX_REF_IMAGES}枚のため残りは省略）。`);
+  } catch (err) {
+    alert('ZIPの読み込みに失敗しました：' + (err.message || err));
+  }
 }
 
 // スマホ写真（HEIC/巨大サイズ）でも確実に扱えるよう、必ずPNGに変換＋縮小して取り込む。
@@ -1058,7 +1082,7 @@ function renderRefImage() {
     zone.classList.add('has-image');
   } else {
     thumbs.innerHTML = `<div class="ref-thumb"><span class="ref-thumb-empty">🖼</span></div>`;
-    info.innerHTML = `写真・イラストを追加（PCはドラッグ＆ドロップも可）。<br><strong>アップした画像のキャラ・絵柄・雰囲気を基に全スタンプを生成</strong>します。<br><span style="color:#888">📷 <strong>写真から選ぶ</strong>＝写真アプリ（Android：Googleフォト／iPhone：写真）<br>📂 <strong>ファイルから選ぶ</strong>＝スマホ本体・ダウンロード・Googleドライブ・iCloud・SDカードなど<br>💡 1体だけのキャラ画像が最適。文字入り・複数並びの完成シートでもOK。JPG/PNG/WebP対応（iPhoneのHEICは自動変換を試みます）。</span>`;
+    info.innerHTML = `写真・イラストを追加（PCはドラッグ＆ドロップも可）。<br><strong>アップした画像のキャラ・絵柄・雰囲気を基に全スタンプを生成</strong>します。<br><span style="color:#888">📷 <strong>写真から選ぶ</strong>＝写真アプリ（Android：Googleフォト／iPhone：写真）<br>📂 <strong>ファイルから選ぶ</strong>＝スマホ本体・ダウンロード・Googleドライブ・iCloud・SDカードなど<br>💡 1体だけのキャラ画像が最適。文字入り・複数並びの完成シートでもOK。JPG/PNG/WebP対応（iPhoneのHEICは自動変換を試みます）。<br>🗜 <strong>ZIPファイルもOK</strong>：中の画像をまとめて取り込みます（最大${MAX_REF_IMAGES}枚）。</span>`;
     clr.style.display = 'none';
     zone.classList.remove('has-image');
   }
@@ -3038,7 +3062,8 @@ async function downloadOne(i) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `${String(i + 1).padStart(2, '0')}_${safeName(c.text)}.png`;
+  // 🅰セリフを入れない時は連番のみのファイル名に（画像に文字が無いので分かりにくくならない）
+  a.download = state.noCaption ? `${String(i + 1).padStart(2, '0')}.png` : `${String(i + 1).padStart(2, '0')}_${safeName(c.text)}.png`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -3591,7 +3616,7 @@ async function downloadAnimOne() {
     const url = URL.createObjectURL(b64ToBlob(r.b64));
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${String(i + 1).padStart(2, '0')}_${safeName(state.captions[i].text)}_anim.png`;
+    a.download = state.noCaption ? `${String(i + 1).padStart(2, '0')}_anim.png` : `${String(i + 1).padStart(2, '0')}_${safeName(state.captions[i].text)}_anim.png`;
     a.click();
     URL.revokeObjectURL(url);
   } catch (e) {
