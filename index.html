@@ -241,7 +241,7 @@
 </head>
 <body>
   <div class="header">
-    <h1>🟢 LINEスタンプメーカー <span style="font-size:10px;font-weight:400;opacity:0.75">v2026.07.07t</span></h1>
+    <h1>🟢 LINEスタンプメーカー <span style="font-size:10px;font-weight:400;opacity:0.75">v2026.07.07u</span></h1>
     <div class="header-actions">
       <span class="api-status" id="apiStatus">API未設定</span>
       <button class="btn btn-secondary btn-sm" onclick="openSettings()">⚙ 設定</button>
@@ -4236,16 +4236,25 @@ let _idb = null;
 function idbInit() {
   if (_idb) return Promise.resolve(_idb);
   return new Promise((resolve, reject) => {
+    let settled = false;
+    const done = (fn, arg) => { if (!settled) { settled = true; fn(arg); } };
     const req = indexedDB.open('lineStampMakerDB', 2);
     req.onupgradeneeded = e => {
       const db = e.target.result;
       if (!db.objectStoreNames.contains('sets')) db.createObjectStore('sets', { keyPath: 'id' });
       if (!db.objectStoreNames.contains('images')) db.createObjectStore('images', { keyPath: 'id' }); // 1枚ずつ保存する「マイ画像」
     };
-    // 同じアプリを他のタブ/ウィンドウで開いていると、データ更新がブロックされて保存できないことがある
-    req.onblocked = () => { alert('保存の準備ができませんでした。\n同じLINEスタンプメーカーを開いている他のタブ・ウィンドウをすべて閉じてから、このページを再読み込みしてください。'); };
-    req.onsuccess = () => { _idb = req.result; resolve(_idb); };
-    req.onerror = () => reject(req.error);
+    // 他のタブ/ウィンドウがDBを握っていて開けない場合。永久に固まらないよう案内してreject
+    req.onblocked = () => done(reject, new Error('他のタブで開いているこのアプリを全部閉じて、ページを再読み込みしてください（データベースが使用中です）。'));
+    req.onsuccess = () => {
+      _idb = req.result;
+      // 他タブが新バージョンで開こうとしたら、この接続を閉じて相手をブロックしない（自動で譲る）
+      _idb.onversionchange = () => { try { _idb.close(); } catch (_) {} _idb = null; };
+      done(resolve, _idb);
+    };
+    req.onerror = () => done(reject, req.error || new Error('データベースを開けませんでした'));
+    // 保険：8秒たっても開けない（=他タブでブロック等）ときはハングさせずrejectする
+    setTimeout(() => done(reject, new Error('データベースを開くのに時間がかかっています。他のタブで開いているこのアプリを全部閉じて、ページを再読み込みしてください。')), 8000);
   });
 }
 // ===== マイ画像（1枚ずつ保存・参考画像に呼び出せる）=====
@@ -4493,7 +4502,12 @@ async function saveCurrentSet() {
 async function renderHistory() {
   let sets;
   try { sets = await idbListSets(); }
-  catch (e) { console.error(e); return; }
+  catch (e) {
+    console.error(e);
+    const area = document.getElementById('historyArea');
+    if (area) area.innerHTML = `<div style="font-size:12px;color:#c0392b;padding:12px;background:#fdecea;border-radius:6px;line-height:1.6"><strong>保存データを開けませんでした。</strong><br>${escHtml(e && e.message ? e.message : '')}<br>👉 同じ「LINEスタンプメーカー」を開いている<strong>他のタブ・ウィンドウを全部閉じて</strong>、このページを<strong>再読み込み</strong>してください。</div>`;
+    return;
+  }
   const area = document.getElementById('historyArea');
   if (!sets.length) {
     area.innerHTML = `<div class="empty" style="padding:14px"><div style="font-size:12px;color:#aaa">まだ保存されたセットはありません。画像を生成したら「💾現在のセットを保存」で保存できます。</div></div>`;
