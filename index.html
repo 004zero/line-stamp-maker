@@ -2274,6 +2274,20 @@ function updateCaption(i, field, value) {
 }
 
 // スタンプを1個だけ削除（セリフ表・カード両方の🗑から）
+function addStamp() {
+  state.captions.push({
+    text: '', emotion: '', composition: '', customPrompt: '', customStyle: '', customOpen: false,
+    refImage: null, image: null, status: 'idle', error: null,
+  });
+  save();
+  renderCaptions();
+  renderStamps();
+  // 追加したカードまでスクロール
+  const cards = document.querySelectorAll('#stampsArea .stamp-card');
+  const target = cards[state.captions.length - 1];
+  if (target) target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+}
+
 function deleteStamp(i) {
   const c = state.captions[i];
   if (!c) return;
@@ -2919,7 +2933,7 @@ function refreshZipBtn() {
 function renderStamps() {
   const area = document.getElementById('stampsArea');
   if (!state.captions.length) {
-    area.innerHTML = `<div class="empty"><div class="icon">🎨</div>セリフ案を作ったあと、画像生成ボタンを押してください</div>`;
+    area.innerHTML = `<div class="empty"><div class="icon">🎨</div>セリフ案を作るか、下のボタンで空のスタンプを追加してください<br><button class="btn btn-primary btn-sm" style="margin-top:12px" onclick="addStamp()">➕ 空のスタンプを追加</button></div>`;
     document.getElementById('zipBtn').disabled = true;
     document.getElementById('genInfo').innerHTML = '';
     refreshFolderBtn();
@@ -3001,6 +3015,13 @@ function renderStamps() {
       </div>
     </div>`;
   });
+  // 末尾に「スタンプを追加」タイル
+  html += `<div class="stamp-card" onclick="addStamp()" title="空のスタンプを追加" style="align-items:center;justify-content:center;cursor:pointer;border:2px dashed #bcdccb;min-height:170px">
+    <div style="text-align:center;color:#06c755">
+      <div style="font-size:40px;line-height:1">＋</div>
+      <div style="font-size:13px;font-weight:700;margin-top:4px">スタンプを追加</div>
+    </div>
+  </div>`;
   html += `</div>`;
   area.innerHTML = html;
   updateGenInfo();
