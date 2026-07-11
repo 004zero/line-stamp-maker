@@ -3093,6 +3093,14 @@ function safeName(s) {
   return (s || 'stamp').replace(/[\\/:*?"<>|\s]+/g, '_').slice(0, 30);
 }
 
+// メイン画像を作る：元スタンプがアニメなら240×240のAPNG、静止なら240×240の静止PNG
+async function buildMainImageFor(c) {
+  if (c && c.anim && (c.anim.apng || (c.anim.frames && c.anim.frames.length))) {
+    try { return (await buildMainApng(c)).b64; } catch (e) { console.warn('メインAPNG生成失敗、静止で代替:', e); }
+  }
+  return await sizeImage(b64src(c.image), LINE_SIZE.mainW, LINE_SIZE.mainH, true);
+}
+
 // メイン画像・タブ画像が未作成なら自動作成する（書き出しを常に完全にする）
 async function ensureLineImages() {
   if (state.mainImage && state.tabImage) return false;
@@ -3100,9 +3108,9 @@ async function ensureLineImages() {
   let idx = (sel && sel.value !== '') ? parseInt(sel.value, 10) : NaN;
   if (isNaN(idx) || !(state.captions[idx] && state.captions[idx].image)) idx = state.captions.findIndex(c => c.image);
   if (idx < 0) return false;
-  const src = b64src(state.captions[idx].image);
-  if (!state.mainImage) state.mainImage = await sizeImage(src, LINE_SIZE.mainW, LINE_SIZE.mainH, true);
-  if (!state.tabImage)  state.tabImage  = await sizeImage(src, LINE_SIZE.tabW,  LINE_SIZE.tabH,  true);
+  const c = state.captions[idx];
+  if (!state.mainImage) state.mainImage = await buildMainImageFor(c);
+  if (!state.tabImage)  state.tabImage  = await sizeImage(b64src(c.image), LINE_SIZE.tabW, LINE_SIZE.tabH, true); // tabは静止でOK
   renderLineImages();
   return true;
 }
@@ -3110,6 +3118,9 @@ async function ensureLineImages() {
 async function downloadZip() {
   const done = state.captions.filter(c => c.image);
   if (!done.length) return;
+  // アニメを付けたスタンプがある場合は、静止画ZIPだと動きが失われる旨を警告
+  const animCount = state.captions.filter(c => c.anim && c.anim.apng).length;
+  if (animCount && !confirm(`アニメ（動き）を付けたスタンプが ${animCount}個 あります。\nこの「📦 ZIP」は<静止画スタンプ>用なので、動きは入りません。\n\nアニメーションスタンプとして申請するなら「🎞 アニメスタンプZIP」を使ってください。\n\nこのまま静止画ZIPを作りますか？`)) return;
   const autoMade = await ensureLineImages(); // main/tabを必ず用意
   const zip = new JSZip();
   // LINEのZIP一括アップロード用：main.png / tab.png / 01.png〜NN.png をまとめて
@@ -3158,7 +3169,7 @@ async function makeLineImages() {
   const c = state.captions[idx];
   if (!c || !c.image) { alert('メイン画像の元にするスタンプを選んでください（先にスタンプ画像を作成）'); return; }
   const src = b64src(c.image);
-  state.mainImage = await sizeImage(src, LINE_SIZE.mainW, LINE_SIZE.mainH, true);
+  state.mainImage = await buildMainImageFor(c); // アニメならAPNG・静止なら静止PNG
   state.tabImage  = await sizeImage(src, LINE_SIZE.tabW,  LINE_SIZE.tabH,  true);
   renderLineImages();
 }
