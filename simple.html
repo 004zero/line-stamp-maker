@@ -403,10 +403,10 @@
     <div class="card">
       <div class="card-title"><span class="num">3</span>スタンプ画像（文字入れ・修正・書き出し）</div>
       <div class="clips-tray" id="clipsTray" style="display:none">
-        <div class="clips-title">✂ 切り抜きトレイ（「②」で切り抜いたコマがここに入ります）</div>
+        <div class="clips-title">✂ 切り抜きトレイ（下のスタンプへ<strong>ドラッグ＆ドロップ</strong>で割り当て）</div>
         <div class="clips-strip" id="clipsStrip"></div>
         <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
-          <button class="btn btn-primary btn-sm" onclick="clipsToStamps()" title="トレイの切り抜きを、1コマ＝1スタンプとして下の一覧に追加します（AI不要）">✨ 切り抜きをスタンプにする</button>
+          <button class="btn btn-primary btn-sm" onclick="clipsToStamps()" title="トレイの切り抜きを、上から順番にスタンプにします（AI不要）">➡ 切り抜きを順番にスタンプへ割り当て</button>
           <button class="btn btn-secondary btn-sm" onclick="addFramesFromClips()" title="トレイの切り抜きを順番に再生するパラパラアニメを作る">🎬 切り抜きでパラパラアニメ</button>
           <button class="btn btn-danger btn-sm" onclick="state.clips=[]; renderClips();">✕ トレイを空に</button>
         </div>
@@ -1205,31 +1205,38 @@ function removeClip(idx) {
   (state.clips || []).splice(idx, 1);
   renderClips();
 }
-// 切り抜きトレイのコマを、そのまま新しいスタンプとして一覧に追加（AI不要・無料）
+// 切り抜きトレイのコマを、上から順番にスタンプにする（AI不要・無料）。
+// 画像がまだ入っていない既存スタンプ枠があれば先に埋め、足りない分は新規追加する。
 async function clipsToStamps() {
   const clips = state.clips || [];
   if (!clips.length) { alert('先に「②」でシート画像から1コマ切り抜いて、トレイに入れてください'); return; }
   const bgRemove = document.getElementById('bgRemoveChk') ? document.getElementById('bgRemoveChk').checked : false;
-  let added = 0;
+  let idx = 0, added = 0;
   for (const cl of clips) {
-    try {
-      let dataUrl = cl.dataUrl;
-      if (bgRemove) dataUrl = await removeBg(dataUrl, state.bgRemoveMode);
+    let dataUrl = cl.dataUrl;
+    if (bgRemove) { try { dataUrl = await removeBg(dataUrl, state.bgRemoveMode); } catch (e) { console.error(e); } }
+    const b64 = dataUrl.split(',')[1];
+    // 次の「画像がまだ無いスタンプ枠」を探す
+    while (idx < state.captions.length && state.captions[idx].image) idx++;
+    if (idx < state.captions.length) {
+      const c = state.captions[idx];
+      c.image = b64; c.status = 'done'; c.refImage = null;
+      await refreshAnim(idx); // アニメ設定済みなら新しい画像で作り直す
+    } else {
       state.captions.push({
         text: '', emotion: '', composition: '', customPrompt: '', customStyle: '',
-        refImage: null, image: dataUrl.split(',')[1], status: 'done', error: null,
+        refImage: null, image: b64, status: 'done', error: null,
       });
-      added++;
-    } catch (e) { console.error(e); }
+    }
+    idx++; added++;
   }
-  if (!added) return;
   state.clips = [];
   save();
   renderClips();
   renderCaptions();
   renderStamps();
   refreshMainSrcSelect();
-  alert(`${added}個の切り抜きをスタンプ一覧（③）に追加しました。\n各カードで文字入れ・🖊修正・🎞アニメ化ができます。`);
+  alert(`${added}個の切り抜きをスタンプにしました。\n各カードで文字入れ・🖊修正・🎞アニメ化ができます。`);
 }
 
 // トレイの切り抜きを、スタンプ01→02…の順に割り当てる
@@ -1266,23 +1273,33 @@ function assignRefsInOrder() {
 }
 
 // スタンプカードへ、①トレイの切り抜き ②PCの画像ファイル をドロップ → そのスタンプ専用の参考画像に
-function onStampDrop(i, e) {
+async function onStampDrop(i, e) {
   e.preventDefault();
   const card = e.currentTarget;
   if (card) card.classList.remove('drop-hover');
+  // ドロップした画像を、そのままこのスタンプの画像にする（AI不要・白背景透過も反映）
+  const bgRemove = document.getElementById('bgRemoveChk') ? document.getElementById('bgRemoveChk').checked : false;
+  const applyUrl = async (dataUrl) => {
+    let url = dataUrl;
+    if (bgRemove) { try { url = await removeBg(url, state.bgRemoveMode); } catch (err) { console.error(err); } }
+    const c = state.captions[i];
+    c.image = url.split(',')[1]; c.status = 'done'; c.refImage = null;
+    await refreshAnim(i);
+    save();
+    renderStamps();
+  };
   // ① 切り抜きトレイからのドラッグ
   const ci = e.dataTransfer.getData('text/clip-index');
   if (ci !== '' && ci != null && !isNaN(parseInt(ci, 10))) {
     const clip = (state.clips || [])[parseInt(ci, 10)];
-    if (clip) {
-      state.captions[i].refImage = { name: clip.name, dataUrl: clip.dataUrl, blob: clip.blob };
-      renderStamps();
-      return;
-    }
+    if (clip) { await applyUrl(clip.dataUrl); return; }
   }
   // ② PCからの画像ファイル
   const file = Array.from(e.dataTransfer.files || []).find(f => f.type.startsWith('image/'));
-  if (file) setStampRefImage(i, file);
+  if (file) {
+    try { const { dataUrl } = await normalizeImageFile(file, 2048); await applyUrl(dataUrl); }
+    catch (err) { alert(err.message); }
+  }
 }
 
 // ========== スタンプ画像の修正（消しゴム・ペン） ==========
