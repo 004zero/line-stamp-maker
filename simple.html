@@ -337,50 +337,6 @@
       </div>
     </div>
 
-    <!-- 参考画像（AI生成版専用・かんたん版では非表示） -->
-    <div class="card" style="display:none">
-      <div class="card-title"><span class="num">3</span>参考画像（任意・全スタンプ共通のベース）</div>
-      <div class="ref-zone" id="refZone" ondragover="event.preventDefault(); this.classList.add('dragover')" ondragleave="this.classList.remove('dragover')" ondrop="onRefDrop(event)">
-        <div class="ref-thumbs" id="refThumbs"><div class="ref-thumb"><span class="ref-thumb-empty">🖼</span></div></div>
-        <div class="ref-info" id="refInfo">
-          画像をドラッグ＆ドロップ、または「画像を選ぶ」<br>
-          <strong>アップした画像のキャラ・絵柄・雰囲気を基に全スタンプを生成</strong>します。<br>
-          <span style="color:#888">※ 透過PNG・JPG・WebP対応。50MBまで。</span>
-        </div>
-        <div class="ref-actions">
-          <input type="file" id="refFile" accept="image/*" multiple onchange="onRefFile(event)">
-          <input type="file" id="refFileAny" multiple onchange="onRefFile(event)">
-          <button class="btn btn-secondary btn-sm" onclick="document.getElementById('refFile').click()" title="写真アプリから選ぶ（AndroidはGoogleフォト、iPhoneは写真）">📷 写真から選ぶ</button>
-          <button class="btn btn-secondary btn-sm" onclick="document.getElementById('refFileAny').click()" title="スマホ本体・ダウンロード・iCloud・SDカードなどから選ぶ">📂 ファイルから選ぶ</button>
-          <button class="btn btn-primary btn-sm" onclick="openRefLibrary()" title="これまでに作って「⭐保存」したスタンプ画像から、参考画像を選ぶ">📁 保存した画像から選ぶ</button>
-          <button class="btn btn-primary btn-sm" onclick="assignRefsInOrder()" id="refAssignBtn" style="display:none" title="参考画像を1枚目→スタンプ01、2枚目→スタンプ02…と順番に各スタンプへ割り当てます。忠実度「そのまま同じ」で生成すると、その画像がそのままスタンプになります（無料）">➡ 参考画像を順番にスタンプへ割り当て</button>
-          <button class="btn btn-secondary btn-sm" onclick="openCropFromRef()" id="refCropBtn" style="display:none">✂ 1コマを切り抜く</button>
-          <button class="btn btn-danger btn-sm" onclick="clearRefImage()" id="refClearBtn" style="display:none">✕ 解除</button>
-        </div>
-      </div>
-      <div style="display:flex;align-items:center;gap:12px;margin-top:10px;padding:0 4px;flex-wrap:wrap">
-        <label style="font-size:12px;font-weight:700;color:#555">📷 写真への忠実度</label>
-        <select id="refStrengthSelect" onchange="state.refStrength = this.value; save(); updateStyleHint();" style="padding:6px 10px;border:1.5px solid #ddd;border-radius:6px;font-size:12px;font-family:inherit">
-          <option value="same">そのまま同じ（画像も文字もいじらず完全コピー）</option>
-          <option value="exact">そっくり（写真ほぼそのまま・表情と文字だけ変更）</option>
-          <option value="high">かなり似せる（同じキャラだとすぐ分かる）※推奨</option>
-          <option value="medium">中くらい（特徴は残しつつイラスト化）</option>
-          <option value="low">雰囲気のみ（色味だけ参考）</option>
-        </select>
-        <span style="font-size:11px;color:#888">※「そのまま同じ」「そっくり」を選ぶとアートスタイルは無視され、画像の見た目が優先されます</span>
-      </div>
-      <div style="margin-top:10px;padding:0 4px">
-        <label style="font-size:12px;color:#555;display:inline-flex;align-items:center;gap:7px;cursor:pointer">
-          <input type="checkbox" id="bgRemoveChk" checked onchange="state.bgRemove=this.checked; save();">
-          <span>✂ 切り抜きを<strong>そのまま使う</strong>とき、<strong>白い背景を透明にする</strong>（LINE用・推奨）</span>
-        </label>
-        <div style="font-size:11px;color:#888;margin-top:3px;padding-left:24px">外周の白だけ消すので、白い服や目の白は残ります。うまく消えない時はオフにできます。</div>
-        <div style="margin-top:10px;padding-left:24px">
-          <label class="form-label" style="margin-bottom:5px">白背景を消す強さ</label>
-          <div id="bgModeRow1"></div>
-        </div>
-      </div>
-    </div>
 
     <!-- ① 手持ち画像を取り込む（AI不要・無料） -->
     <div class="card">
@@ -407,14 +363,50 @@
       </div>
     </div>
 
-    <!-- ② スタンプ一覧・書き出し -->
+    <!-- ② 参考画像・シートから切り抜く（AI不要・任意） -->
     <div class="card">
-      <div class="card-title"><span class="num">2</span>スタンプ画像（文字入れ・修正・書き出し）</div>
+      <div class="card-title"><span class="num">2</span>参考画像・シートから切り抜く（任意）</div>
+      <div style="font-size:12px;color:#666;margin-bottom:12px;line-height:1.7">
+        大きい1枚の画像や、複数のキャラが並んだ「シート画像」を取り込んで、<strong>✂ で1コマずつ切り抜いてスタンプにできます</strong>（AI不要）。1枚まるごとをそのままスタンプにするだけなら、上の「① 画像を取り込む」でOKです。
+      </div>
+      <div class="ref-zone" id="refZone" ondragover="event.preventDefault(); this.classList.add('dragover')" ondragleave="this.classList.remove('dragover')" ondrop="onRefDrop(event)">
+        <div class="ref-thumbs" id="refThumbs"><div class="ref-thumb"><span class="ref-thumb-empty">🖼</span></div></div>
+        <div class="ref-info" id="refInfo">
+          写真・イラスト・シート画像を追加（PCはドラッグ＆ドロップも可）。<br>
+          追加したら<strong>サムネイルをクリック</strong>すると、その画像から1コマを切り抜けます。<br>
+          <span style="color:#888">※ JPG・PNG・WebP対応・50MBまで。ZIPもOK（中の画像をまとめて取り込み）。</span>
+        </div>
+        <div class="ref-actions">
+          <input type="file" id="refFile" accept="image/*" multiple onchange="onRefFile(event)">
+          <input type="file" id="refFileAny" multiple onchange="onRefFile(event)">
+          <button class="btn btn-secondary btn-sm" onclick="document.getElementById('refFile').click()" title="写真アプリから選ぶ（AndroidはGoogleフォト、iPhoneは写真）">📷 写真から選ぶ</button>
+          <button class="btn btn-secondary btn-sm" onclick="document.getElementById('refFileAny').click()" title="スマホ本体・ダウンロード・iCloud・SDカードなどから選ぶ">📂 ファイルから選ぶ</button>
+          <button class="btn btn-primary btn-sm" onclick="openCropFromRef()" id="refCropBtn" style="display:none">✂ 1コマを切り抜く</button>
+          <button class="btn btn-danger btn-sm" onclick="clearRefImage()" id="refClearBtn" style="display:none">✕ 解除</button>
+        </div>
+      </div>
+      <input type="hidden" id="refStrengthSelect" value="same">
+      <div style="margin-top:10px;padding:0 4px">
+        <label style="font-size:12px;color:#555;display:inline-flex;align-items:center;gap:7px;cursor:pointer">
+          <input type="checkbox" id="bgRemoveChk" checked onchange="state.bgRemove=this.checked; save();">
+          <span>切り抜きを使うとき、<strong>白い背景を透明にする</strong>（LINE用・推奨）</span>
+        </label>
+        <div style="font-size:11px;color:#888;margin-top:3px;padding-left:24px">外周の白だけ消すので、白い服や目の白は残ります。うまく消えない時はオフにできます。</div>
+        <div style="margin-top:10px;padding-left:24px">
+          <label class="form-label" style="margin-bottom:5px">白背景を消す強さ</label>
+          <div id="bgModeRow1"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ③ スタンプ一覧・書き出し -->
+    <div class="card">
+      <div class="card-title"><span class="num">3</span>スタンプ画像（文字入れ・修正・書き出し）</div>
       <div class="clips-tray" id="clipsTray" style="display:none">
-        <div class="clips-title">✂ 切り抜きトレイ（下のスタンプへ<strong>ドラッグ＆ドロップ</strong>で割り当て）</div>
+        <div class="clips-title">✂ 切り抜きトレイ（「②」で切り抜いたコマがここに入ります）</div>
         <div class="clips-strip" id="clipsStrip"></div>
         <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
-          <button class="btn btn-secondary btn-sm" onclick="assignClipsInOrder()">➡ 切り抜きを順番にスタンプへ割り当て</button>
+          <button class="btn btn-primary btn-sm" onclick="clipsToStamps()" title="トレイの切り抜きを、1コマ＝1スタンプとして下の一覧に追加します（AI不要）">✨ 切り抜きをスタンプにする</button>
           <button class="btn btn-secondary btn-sm" onclick="addFramesFromClips()" title="トレイの切り抜きを順番に再生するパラパラアニメを作る">🎬 切り抜きでパラパラアニメ</button>
           <button class="btn btn-danger btn-sm" onclick="state.clips=[]; renderClips();">✕ トレイを空に</button>
         </div>
@@ -1072,12 +1064,12 @@ function renderRefImage() {
     }
     thumbs.innerHTML = h;
     const over = imgs.length > API_REF_LIMIT;
-    info.innerHTML = `<strong>📎 ${imgs.length}枚</strong>の参考画像（最大${MAX_REF_IMAGES}枚）をベースに全スタンプを生成します<br><span style="color:#888">💡 サムネイルを<strong>クリックするとその画像から切り抜き</strong>できます ／ 個別カードの指定が優先 ／ ※AI生成時は枚数が多いほど遅く・高くなります</span>${over ? `<br><span style="color:#c0392b">⚠ AI生成に使うのは<strong>先頭${API_REF_LIMIT}枚</strong>までです（送りすぎ防止）。たくさん登録できますが、実際に使いたいキャラは前の方に置いてください。</span>` : ''}`;
+    info.innerHTML = `<strong>📎 ${imgs.length}枚</strong>の画像を取り込みました（最大${MAX_REF_IMAGES}枚）。<br><span style="color:#888">💡 サムネイルを<strong>クリックするとその画像から1コマ切り抜き</strong>できます。切り抜いたコマは下の「✂ 切り抜きトレイ」に入り、「✨ 切り抜きをスタンプにする」でスタンプ化できます。</span>`;
     clr.style.display = '';
     zone.classList.add('has-image');
   } else {
     thumbs.innerHTML = `<div class="ref-thumb"><span class="ref-thumb-empty">🖼</span></div>`;
-    info.innerHTML = `写真・イラストを追加（PCはドラッグ＆ドロップも可）。<br><strong>アップした画像のキャラ・絵柄・雰囲気を基に全スタンプを生成</strong>します。<br><span style="color:#888">📷 <strong>写真から選ぶ</strong>＝写真アプリ（Android：Googleフォト／iPhone：写真）<br>📂 <strong>ファイルから選ぶ</strong>＝スマホ本体・ダウンロード・Googleドライブ・iCloud・SDカードなど<br>💡 1体だけのキャラ画像が最適。文字入り・複数並びの完成シートでもOK。JPG/PNG/WebP対応（iPhoneのHEICは自動変換を試みます）。<br>🗜 <strong>ZIPファイルもOK</strong>：中の画像をまとめて取り込みます（最大${MAX_REF_IMAGES}枚）。</span>`;
+    info.innerHTML = `写真・イラスト・シート画像を追加（PCはドラッグ＆ドロップも可）。<br><strong>追加したらサムネイルをクリックすると、その画像から1コマ切り抜けます。</strong><br><span style="color:#888">📷 <strong>写真から選ぶ</strong>＝写真アプリ（Android：Googleフォト／iPhone：写真）<br>📂 <strong>ファイルから選ぶ</strong>＝スマホ本体・ダウンロード・Googleドライブ・iCloud・SDカードなど<br>💡 複数のキャラが並んだ完成シートから、1コマずつ切り抜くのに便利。JPG/PNG/WebP対応（iPhoneのHEICは自動変換を試みます）。<br>🗜 <strong>ZIPファイルもOK</strong>：中の画像をまとめて取り込みます（最大${MAX_REF_IMAGES}枚）。</span>`;
     clr.style.display = 'none';
     zone.classList.remove('has-image');
   }
@@ -1213,6 +1205,33 @@ function removeClip(idx) {
   (state.clips || []).splice(idx, 1);
   renderClips();
 }
+// 切り抜きトレイのコマを、そのまま新しいスタンプとして一覧に追加（AI不要・無料）
+async function clipsToStamps() {
+  const clips = state.clips || [];
+  if (!clips.length) { alert('先に「②」でシート画像から1コマ切り抜いて、トレイに入れてください'); return; }
+  const bgRemove = document.getElementById('bgRemoveChk') ? document.getElementById('bgRemoveChk').checked : false;
+  let added = 0;
+  for (const cl of clips) {
+    try {
+      let dataUrl = cl.dataUrl;
+      if (bgRemove) dataUrl = await removeBg(dataUrl, state.bgRemoveMode);
+      state.captions.push({
+        text: '', emotion: '', composition: '', customPrompt: '', customStyle: '',
+        refImage: null, image: dataUrl.split(',')[1], status: 'done', error: null,
+      });
+      added++;
+    } catch (e) { console.error(e); }
+  }
+  if (!added) return;
+  state.clips = [];
+  save();
+  renderClips();
+  renderCaptions();
+  renderStamps();
+  refreshMainSrcSelect();
+  alert(`${added}個の切り抜きをスタンプ一覧（③）に追加しました。\n各カードで文字入れ・🖊修正・🎞アニメ化ができます。`);
+}
+
 // トレイの切り抜きを、スタンプ01→02…の順に割り当てる
 function assignClipsInOrder() {
   const clips = state.clips || [];
