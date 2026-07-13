@@ -529,7 +529,7 @@
         <button class="btn btn-secondary btn-sm" id="editLassoBtn" onclick="setEditTool('lasso')" title="指でぐるっと囲んだ範囲を消す（なげなわ）">⭕ なげなわ</button>
         <button class="btn btn-secondary btn-sm" id="editSelectBtn" onclick="setEditTool('select')" title="クリックで同じ色の範囲を選ぶ→コピー・色替え・削除ができる（🪄自動選択の即削除とは別）">🎯 範囲選択</button>
         <button class="btn btn-secondary btn-sm" id="editPasteBtn" onclick="editSelPaste()" disabled title="コピーした部分を貼り付け（貼ったあとドラッグで移動）">📌 貼り付け</button>
-        <button class="btn btn-secondary btn-sm" id="editHandBtn" onclick="setEditTool('hand')" title="ズーム中にドラッグで表示位置を移動">✋ 移動</button>
+        <button class="btn btn-secondary btn-sm" id="editHandBtn" onclick="setEditTool('hand')" title="スタンプの絵をドラッグで動かして位置を調整（↩で元に戻せます）">✋ 移動</button>
         <label style="font-size:12px;color:#555;display:inline-flex;align-items:center;gap:5px">太さ<input type="range" id="editSize" min="2" max="90" value="24" style="vertical-align:middle"></label>
         <label style="font-size:12px;color:#555;display:inline-flex;align-items:center;gap:5px" title="🪄自動選択で、どれくらい色が近ければ一緒に消すか。大きいほど広く消えます">🪄ゆるさ<input type="range" id="editWandTol" min="10" max="120" value="45" style="vertical-align:middle"></label>
         <label style="font-size:12px;color:#555;display:inline-flex;align-items:center;gap:5px">色<input type="color" id="editColor" value="#333333"></label>
@@ -560,7 +560,7 @@
         <button class="btn btn-secondary btn-sm" onclick="editZoom(1.5)">🔍＋ 拡大</button>
         <button class="btn btn-secondary btn-sm" onclick="editZoom(1/1.5)">🔍− 縮小</button>
         <button class="btn btn-secondary btn-sm" onclick="editZoomReset()">100%</button>
-        <span style="font-size:11px;color:#888">拡大中は「✋移動」でドラッグ、または<strong>マウスの右ボタンでドラッグ</strong>すると、ツールを変えずに位置を動かせます</span>
+        <span style="font-size:11px;color:#888">「✋移動」＝<strong>絵そのものをドラッグで動かして位置を調整</strong>できます（↩で戻せます）。拡大中の表示位置は<strong>マウスの右ボタンでドラッグ</strong>して動かせます</span>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
         <span style="font-size:12px;font-weight:700;color:#555">サイズ:</span>
@@ -1525,9 +1525,10 @@ function editDown(e) {
   const t = e.touches && e.touches[0];
   const cx = t ? t.clientX : e.clientX, cy = t ? t.clientY : e.clientY;
   if (_edit.tool === 'hand') {
-    // ✋移動：表示位置をドラッグ（画像は変えない）
-    _edit.panning = true;
-    _edit.panStart = { x: cx - _edit.view.ox, y: cy - _edit.view.oy };
+    // ✋移動：スタンプの絵そのものをドラッグで動かす（位置の調整・↩で戻せる）
+    _editSaveHistory();
+    _edit.scaleBase = null;
+    _edit.imgDrag = { sx: cx, sy: cy, snap: _edit.ctx.getImageData(0, 0, _edit.canvas.width, _edit.canvas.height) };
     e.preventDefault();
     return;
   }
@@ -1537,7 +1538,21 @@ function editDown(e) {
 }
 function editMove(e) {
   if (!_edit) return;
-  if (_edit.panning) { // ✋移動ツールの左ドラッグ、またはどのツールでも右ドラッグ
+  if (_edit.imgDrag) {
+    // ✋移動：絵そのものをずらして描き直す
+    const t = e.touches && e.touches[0];
+    const cx = t ? t.clientX : e.clientX, cy = t ? t.clientY : e.clientY;
+    const rect = _edit.canvas.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const kx = _edit.canvas.width / rect.width, ky = _edit.canvas.height / rect.height;
+    const dx = Math.round((cx - _edit.imgDrag.sx) * kx);
+    const dy = Math.round((cy - _edit.imgDrag.sy) * ky);
+    _edit.ctx.clearRect(0, 0, _edit.canvas.width, _edit.canvas.height);
+    _edit.ctx.putImageData(_edit.imgDrag.snap, dx, dy);
+    e.preventDefault();
+    return;
+  }
+  if (_edit.panning) { // どのツールでも右ドラッグ＝表示位置を動かす
     const t = e.touches && e.touches[0];
     const cx = t ? t.clientX : e.clientX, cy = t ? t.clientY : e.clientY;
     _edit.view.ox = cx - _edit.panStart.x;
@@ -1572,6 +1587,7 @@ function editMove(e) {
 }
 function editUp() {
   if (!_edit) return;
+  if (_edit.imgDrag) { _edit.imgDrag = null; return; } // ✋移動（絵の移動）の確定
   if (_edit.floDrag) { _edit.floDrag = null; return; } // 貼り付け移動の終了
   if (_edit.tool === 'lasso' && _edit.lassoing) {
     _edit.lassoing = false;
@@ -4780,7 +4796,7 @@ function refreshFolderBtn() {
 
 // ========== Init ==========
 // ステージ外でマウスを離してもドラッグを終了させる
-window.addEventListener('mouseup', () => { if (_crop) _crop.dragging = false; if (_edit) { if (_edit.lassoing) editUp(); else { _edit.drawing = false; _edit.panning = false; } } });
+window.addEventListener('mouseup', () => { if (_crop) _crop.dragging = false; if (_edit) { if (_edit.lassoing) editUp(); else { _edit.drawing = false; _edit.panning = false; _edit.imgDrag = null; } } });
 load();
 bindInputs();
 refreshApiStatus();
