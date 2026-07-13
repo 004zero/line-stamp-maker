@@ -4465,6 +4465,7 @@ async function idbSaveSet(name) {
     count: state.count, tones: state.tones, refStrength: state.refStrength,
     storeTextLangs: state.storeTextLangs, storeTexts: state.storeTexts,
     refImages: (state.refImages || []).map(im => ({ name: im.name, dataUrl: im.dataUrl })),
+    clips: (state.clips || []).map(cl => ({ name: cl.name, dataUrl: cl.dataUrl })), // 切り抜きトレイも保存
     captions: state.captions.map(c => ({
       text: c.text, emotion: c.emotion, composition: c.composition,
       customPrompt: c.customPrompt || '', customStyle: c.customStyle || '',
@@ -4585,8 +4586,10 @@ function _setSaveMsg(text, ok) {
 
 // ダイアログ（prompt/alert）に頼らず、押したら即・確実に保存する。名前は「テーマ＋日時」を自動で付ける。
 async function saveCurrentSet() {
-  if (!state.captions.some(c => c.image)) {
-    _setSaveMsg('まだ保存できるスタンプがありません。「① 画像を取り込む」で画像を追加するか、「② 参考画像・シートから切り抜く」で切り抜いて「➡ 切り抜きを順番にスタンプへ割り当て」を押してから、もう一度保存してください。', false);
+  // スタンプ画像・参考画像・切り抜きトレイのどれかがあれば保存できる（途中の作業も保存OK）
+  const hasAnything = state.captions.some(c => c.image) || (state.refImages || []).length || (state.clips || []).length;
+  if (!hasAnything) {
+    _setSaveMsg('まだ保存できるものがありません。「① 画像を取り込む」で画像を追加するか、「② 参考画像・シートから切り抜く」で画像を取り込んでから、もう一度保存してください。', false);
     return;
   }
   const def = (state.theme || '無題') + ' ' + new Date().toLocaleString('ja-JP', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
@@ -4672,6 +4675,14 @@ async function loadSet(id) {
     const blob = await (await fetch(im.dataUrl)).blob();
     state.refImages.push({ name: im.name || 'ref.png', dataUrl: im.dataUrl, blob });
   }
+  // 切り抜きトレイも復元
+  state.clips = [];
+  for (const cl of (s.clips || [])) {
+    try {
+      const blob = await (await fetch(cl.dataUrl)).blob();
+      state.clips.push({ name: cl.name || 'crop.png', dataUrl: cl.dataUrl, blob });
+    } catch (e) { console.error(e); }
+  }
   state.captions = s.captions.map(c => ({
     text: c.text, emotion: c.emotion, composition: c.composition,
     customPrompt: c.customPrompt || '', customStyle: c.customStyle || '',
@@ -4684,6 +4695,7 @@ async function loadSet(id) {
   save();
   bindInputs();
   renderRefImage();
+  renderClips();
   renderCaptions();
   renderStamps();
   refreshSaveBtn();
