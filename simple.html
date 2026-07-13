@@ -264,7 +264,7 @@
           <button class="btn btn-secondary btn-sm" onclick="exportAllData()" title="保存済みセットを全部まとめて1つのファイルにして、パソコンに保存（バックアップ）します">💾 全部バックアップ</button>
           <input type="file" id="importFile" accept="application/json,.json" style="display:none" onchange="importAllData(event)">
           <button class="btn btn-secondary btn-sm" onclick="document.getElementById('importFile').click()" title="バックアップファイルを読み込んで、保存済みセットを元に戻します（別のパソコンへの引っ越しにも）">📂 復元</button>
-          <button class="btn btn-primary btn-sm" onclick="saveCurrentSet()" id="saveSetBtn" disabled>💾 現在のセットを保存</button>
+          <button class="btn btn-primary btn-sm" onclick="saveCurrentSet()" id="saveSetBtn">💾 現在のセットを保存</button>
         </div>
       </div>
       <div style="font-size:11px;color:#888;margin-bottom:10px">💡 保存済みセットはこのブラウザの中だけに保存されています。<strong>ブラウザのデータを消すと消えてしまう</strong>ので、ときどき「💾 全部バックアップ」でパソコンにも控えを取っておくと安心です。</div>
@@ -4585,7 +4585,10 @@ function _setSaveMsg(text, ok) {
 
 // ダイアログ（prompt/alert）に頼らず、押したら即・確実に保存する。名前は「テーマ＋日時」を自動で付ける。
 async function saveCurrentSet() {
-  if (!state.captions.length) { _setSaveMsg('保存する内容がありません（先にセリフ案を作って画像を用意してください）', false); return; }
+  if (!state.captions.some(c => c.image)) {
+    _setSaveMsg('まだ保存できるスタンプがありません。「① 画像を取り込む」で画像を追加するか、「② 参考画像・シートから切り抜く」で切り抜いて「➡ 切り抜きを順番にスタンプへ割り当て」を押してから、もう一度保存してください。', false);
+    return;
+  }
   const def = (state.theme || '無題') + ' ' + new Date().toLocaleString('ja-JP', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
   const btn = document.getElementById('saveSetBtn');
   const orig = btn ? btn.innerHTML : '';
@@ -4696,8 +4699,9 @@ async function deleteSet(id) {
 }
 
 function refreshSaveBtn() {
+  // 常に押せるようにしておき、まだ保存できるものが無いときは押した時に理由を表示する
   const btn = document.getElementById('saveSetBtn');
-  if (btn) btn.disabled = !state.captions.length;
+  if (btn) btn.disabled = false;
 }
 
 // ========== Folder export (File System Access API) ==========
