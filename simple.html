@@ -560,13 +560,18 @@
         <button class="btn btn-secondary btn-sm" onclick="editZoom(1.5)">🔍＋ 拡大</button>
         <button class="btn btn-secondary btn-sm" onclick="editZoom(1/1.5)">🔍− 縮小</button>
         <button class="btn btn-secondary btn-sm" onclick="editZoomReset()">100%</button>
-        <span style="font-size:11px;color:#888">「✋移動」＝<strong>絵そのものをドラッグで動かして位置を調整</strong>できます（↩で戻せます）。拡大中の表示位置は<strong>マウスの右ボタンでドラッグ</strong>して動かせます</span>
+        <span style="font-size:11px;color:#888">「✋移動」＝<strong>絵そのものをドラッグで動かして位置を調整</strong>できます（↩で戻せます）。ドラッグが効かないときは下の<strong>「位置: ⬅⬆⬇➡」ボタンかキーボードの矢印キー</strong>でも動かせます。拡大中の表示位置は<strong>マウスの右ボタンでドラッグ</strong></span>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
         <span style="font-size:12px;font-weight:700;color:#555">サイズ:</span>
         <button class="btn btn-secondary btn-sm" onclick="editScale(0.9)">➖ 縮小</button>
         <button class="btn btn-secondary btn-sm" onclick="editScale(1.1)">➕ 拡大</button>
         <button class="btn btn-secondary btn-sm" onclick="editAutoFit()" title="キャラを検出して枠に対して標準サイズ・中央に揃える">📐 自動フィット</button>
+        <span style="font-size:12px;font-weight:700;color:#555;margin-left:8px">位置:</span>
+        <button class="btn btn-secondary btn-sm" onclick="editNudge(-20,0)" title="絵を左へ動かす（キーボードの←でもOK）">⬅</button>
+        <button class="btn btn-secondary btn-sm" onclick="editNudge(0,-20)" title="絵を上へ動かす（キーボードの↑でもOK）">⬆</button>
+        <button class="btn btn-secondary btn-sm" onclick="editNudge(0,20)" title="絵を下へ動かす（キーボードの↓でもOK）">⬇</button>
+        <button class="btn btn-secondary btn-sm" onclick="editNudge(20,0)" title="絵を右へ動かす（キーボードの→でもOK）">➡</button>
         <span style="font-size:12px;font-weight:700;color:#555;margin-left:8px">背景:</span>
         <button class="btn btn-secondary btn-sm" onclick="document.getElementById('editBgFile').click()">🖼 画像を差し込む</button>
         <input type="file" id="editBgFile" accept="image/*" style="display:none" onchange="editBgFile(event)">
@@ -1584,6 +1589,15 @@ function editMove(e) {
   }
   if (!_edit.drawing) return;
   const p = _editXY(e); _editStroke(_edit.last, p); _edit.last = p; e.preventDefault();
+}
+// 絵の位置を少しずつ動かす（位置ボタン／矢印キー用・↩で戻せる）
+function editNudge(dx, dy) {
+  if (!_edit) return;
+  _editSaveHistory();
+  _edit.scaleBase = null;
+  const snap = _edit.ctx.getImageData(0, 0, _edit.canvas.width, _edit.canvas.height);
+  _edit.ctx.clearRect(0, 0, _edit.canvas.width, _edit.canvas.height);
+  _edit.ctx.putImageData(snap, dx, dy);
 }
 function editUp() {
   if (!_edit) return;
@@ -4797,6 +4811,14 @@ function refreshFolderBtn() {
 // ========== Init ==========
 // ステージ外でマウスを離してもドラッグを終了させる
 window.addEventListener('mouseup', () => { if (_crop) _crop.dragging = false; if (_edit) { if (_edit.lassoing) editUp(); else { _edit.drawing = false; _edit.panning = false; _edit.imgDrag = null; } } });
+// 修正モーダルを開いている間は、矢印キーで絵の位置を動かせる（10pxずつ）
+window.addEventListener('keydown', (e) => {
+  if (!_edit) return;
+  const tag = (e.target && e.target.tagName) || '';
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+  const map = { ArrowLeft: [-10, 0], ArrowRight: [10, 0], ArrowUp: [0, -10], ArrowDown: [0, 10] };
+  if (map[e.key]) { editNudge(map[e.key][0], map[e.key][1]); e.preventDefault(); }
+});
 load();
 bindInputs();
 refreshApiStatus();
