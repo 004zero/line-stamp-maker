@@ -575,7 +575,8 @@
       <div id="editSelPanel" style="display:none;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px;background:#eef7ff;border:1px solid #cfe6ff;border-radius:7px;padding:8px 10px">
         <span style="font-size:12px;font-weight:700;color:#0a66c2">🎯 選択中：</span>
         <button class="btn btn-secondary btn-sm" onclick="editSelCopy()" title="選んだ部分をコピー">📋 コピー</button>
-        <button class="btn btn-secondary btn-sm" onclick="editSelRecolor()" title="上の「色」ボタンで選んだ色に塗り替え（明るさ・影は保つ）">🎨 選んだ色に変える</button>
+        <button class="btn btn-primary btn-sm" onclick="editSelFill()" title="選んだ範囲を上の「色」でそのまま塗りつぶします。白や黒の部分にも確実に色が付きます">🪣 べた塗り</button>
+        <button class="btn btn-secondary btn-sm" onclick="editSelRecolor()" title="上の「色」に塗り替え（明るさ・影は保つ）。※白・黒・グレーの部分はほぼ変わりません→そのときは🪣べた塗りを使ってください">🎨 影を残して色変え</button>
         <button class="btn btn-secondary btn-sm" onclick="editSelDelete()" title="選んだ部分を消す">🗑 選択を消す</button>
         <button class="btn btn-secondary btn-sm" onclick="editSelClear()">✕ 選択解除</button>
       </div>
@@ -1768,6 +1769,26 @@ function editSelCopy() {
   _edit.clip = { canvas: clip, w: cw, h: ch, ox: minX, oy: minY };
   const pb = document.getElementById('editPasteBtn'); if (pb) pb.disabled = false;
   alert('コピーしました。「📌 貼り付け」を押すと貼れます（貼ったあとドラッグで位置を調整）。');
+}
+
+// 選択部分を「色」でべた塗り（白・黒でも確実に色が付く。フチのなめらかさ=アルファは保つ）
+function editSelFill() {
+  if (!_edit || !_edit.sel) return;
+  const w = _edit.canvas.width, h = _edit.canvas.height;
+  _edit.ctx.putImageData(_edit.selSnap, 0, 0); // ハイライト線を消してクリーンに
+  _editSaveHistory();                          // 塗る前を履歴へ（↩で戻せる）
+  const tgt = _hexToRgb(document.getElementById('editColor').value);
+  const id = new ImageData(new Uint8ClampedArray(_edit.selSnap.data), w, h);
+  const d = id.data, sel = _edit.sel;
+  for (let p = 0; p < w * h; p++) {
+    if (!sel[p]) continue;
+    const i = p * 4;
+    if (d[i + 3] < 8) continue; // 透明部分はそのまま
+    d[i] = tgt.r; d[i + 1] = tgt.g; d[i + 2] = tgt.b;
+  }
+  _edit.ctx.putImageData(id, 0, 0);
+  _edit.sel = null; _edit.selSnap = null;
+  document.getElementById('editSelPanel').style.display = 'none';
 }
 
 // 選択部分を「色」で塗り替え（明るさ・影は保ったまま色相・彩度だけ変える）
