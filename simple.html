@@ -462,11 +462,11 @@
       <div class="form-grid">
         <div class="form-group">
           <label class="form-label">タイトル（日本語）<span id="stTitleJaCount" style="font-weight:400"></span></label>
-          <input type="text" class="form-input" id="stTitleJa" placeholder="例：ボルゾイのゆるふわ敬語スタンプ" oninput="stCount()">
+          <input type="text" class="form-input" id="stTitleJa" lang="ja" placeholder="例：ボルゾイのゆるふわ敬語スタンプ" oninput="stCount()">
         </div>
         <div class="form-group">
           <label class="form-label">説明文（日本語）<span id="stDescJaCount" style="font-weight:400"></span></label>
-          <textarea class="form-textarea" id="stDescJa" placeholder="例：ふんわりかわいいボルゾイが、毎日使えるやさしい敬語であいさつします。" oninput="stCount()"></textarea>
+          <textarea class="form-textarea" id="stDescJa" lang="ja" placeholder="例：ふんわりかわいいボルゾイが、毎日使えるやさしい敬語であいさつします。" oninput="stCount()"></textarea>
         </div>
       </div>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:10px 0">
@@ -476,11 +476,11 @@
       <div class="form-grid">
         <div class="form-group">
           <label class="form-label">Title（英語・40文字以内）<span id="stTitleEnCount" style="font-weight:400"></span> <button class="btn btn-secondary btn-sm" onclick="stCopy('stTitleEn')" style="margin-left:6px">📋 コピー</button></label>
-          <input type="text" class="form-input" id="stTitleEn" placeholder="（翻訳するとここに出ます・手直しできます）" oninput="stCount()">
+          <input type="text" class="form-input" id="stTitleEn" lang="en" spellcheck="true" placeholder="（翻訳するとここに出ます・手直しできます）" oninput="stCount()">
         </div>
         <div class="form-group">
           <label class="form-label">Description（英語・160文字以内）<span id="stDescEnCount" style="font-weight:400"></span> <button class="btn btn-secondary btn-sm" onclick="stCopy('stDescEn')" style="margin-left:6px">📋 コピー</button></label>
-          <textarea class="form-textarea" id="stDescEn" placeholder="（翻訳するとここに出ます・手直しできます）" oninput="stCount()"></textarea>
+          <textarea class="form-textarea" id="stDescEn" lang="en" spellcheck="true" placeholder="（翻訳するとここに出ます・手直しできます）" oninput="stCount()"></textarea>
         </div>
       </div>
       <div id="stTransMsg" style="font-size:12px;font-weight:700;margin-top:6px"></div>
