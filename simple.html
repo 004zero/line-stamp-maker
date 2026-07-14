@@ -452,6 +452,40 @@
     </div>
 
 
+    <!-- ④ LINE申請用の英語表記（無料翻訳・APIキー不要） -->
+    <div class="card">
+      <div class="card-title"><span class="num">4</span>LINE申請用のタイトル・説明文（日本語→英語）</div>
+      <div class="hint">
+        <strong>📝 LINE Creators Marketの申請には英語のタイトル・説明文が必須です</strong>
+        日本語で入力して「🌐 英語に翻訳」を押すと、無料の翻訳サービスで英語表記を作ります（APIキー不要）。タイトルは<strong>40文字以内</strong>・説明文は<strong>160文字以内</strong>。できた英文は手直しOK。📋コピーして申請フォームのEnglish欄に貼り付けてください。
+      </div>
+      <div class="form-grid">
+        <div class="form-group">
+          <label class="form-label">タイトル（日本語）<span id="stTitleJaCount" style="font-weight:400"></span></label>
+          <input type="text" class="form-input" id="stTitleJa" placeholder="例：ボルゾイのゆるふわ敬語スタンプ" oninput="stCount()">
+        </div>
+        <div class="form-group">
+          <label class="form-label">説明文（日本語）<span id="stDescJaCount" style="font-weight:400"></span></label>
+          <textarea class="form-textarea" id="stDescJa" placeholder="例：ふんわりかわいいボルゾイが、毎日使えるやさしい敬語であいさつします。" oninput="stCount()"></textarea>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:10px 0">
+        <button class="btn btn-primary" id="stTransBtn" onclick="translateStoreTexts()">🌐 英語に翻訳</button>
+        <span style="font-size:11px;color:#888">無料のGoogle翻訳を使います（つながらない時は自動で予備の翻訳に切替）</span>
+      </div>
+      <div class="form-grid">
+        <div class="form-group">
+          <label class="form-label">Title（英語・40文字以内）<span id="stTitleEnCount" style="font-weight:400"></span> <button class="btn btn-secondary btn-sm" onclick="stCopy('stTitleEn')" style="margin-left:6px">📋 コピー</button></label>
+          <input type="text" class="form-input" id="stTitleEn" placeholder="（翻訳するとここに出ます・手直しできます）" oninput="stCount()">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Description（英語・160文字以内）<span id="stDescEnCount" style="font-weight:400"></span> <button class="btn btn-secondary btn-sm" onclick="stCopy('stDescEn')" style="margin-left:6px">📋 コピー</button></label>
+          <textarea class="form-textarea" id="stDescEn" placeholder="（翻訳するとここに出ます・手直しできます）" oninput="stCount()"></textarea>
+        </div>
+      </div>
+      <div id="stTransMsg" style="font-size:12px;font-weight:700;margin-top:6px"></div>
+    </div>
+
     <!-- LINE申請用テキスト（AI生成版専用・かんたん版では非表示） -->
     <div class="card" style="display:none">
       <div class="card-title"><span class="num">6</span>LINE申請用のタイトル・説明文</div>
@@ -4808,6 +4842,89 @@ function refreshFolderBtn() {
   }
 }
 
+// ========== かんたん版：無料翻訳（日本語→英語）でLINE申請用テキストを作る ==========
+async function _freeTranslate(text) {
+  // 1) Google翻訳の無料エンドポイント（APIキー不要）
+  try {
+    const u = 'https://translate.googleapis.com/translate_a/single?client=gtx&sl=ja&tl=en&dt=t&q=' + encodeURIComponent(text);
+    const res = await fetch(u);
+    if (res.ok) {
+      const d = await res.json();
+      const t = ((d && d[0]) || []).map(seg => (seg && seg[0]) || '').join('').trim();
+      if (t) return t;
+    }
+  } catch (_) {}
+  // 2) 予備：MyMemory（無料・キー不要）
+  const res2 = await fetch('https://api.mymemory.translated.net/get?q=' + encodeURIComponent(text) + '&langpair=ja|en');
+  if (!res2.ok) throw new Error('翻訳サービスに接続できませんでした。ネット接続を確認して、少し時間をおいてからもう一度お試しください。');
+  const d2 = await res2.json();
+  const t2 = d2 && d2.responseData && d2.responseData.translatedText;
+  if (!t2) throw new Error('翻訳結果を取得できませんでした');
+  return t2.trim();
+}
+
+async function translateStoreTexts() {
+  const ja1 = document.getElementById('stTitleJa').value.trim();
+  const ja2 = document.getElementById('stDescJa').value.trim();
+  const msg = document.getElementById('stTransMsg');
+  if (!ja1 && !ja2) { msg.textContent = '日本語のタイトルか説明文を入力してください'; msg.style.color = '#c0392b'; return; }
+  const btn = document.getElementById('stTransBtn');
+  const orig = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>翻訳中…';
+  msg.textContent = '';
+  try {
+    if (ja1) document.getElementById('stTitleEn').value = await _freeTranslate(ja1);
+    if (ja2) document.getElementById('stDescEn').value = await _freeTranslate(ja2);
+    stCount();
+    msg.textContent = '✓ 翻訳しました。文字数が赤い場合は短く直してからコピーしてください。';
+    msg.style.color = '#06843c';
+  } catch (e) {
+    msg.textContent = '翻訳に失敗しました：' + (e.message || e);
+    msg.style.color = '#c0392b';
+  } finally {
+    btn.disabled = false; btn.innerHTML = orig;
+  }
+}
+
+function stCount() {
+  const f = (id, cid, max) => {
+    const el = document.getElementById(id), c = document.getElementById(cid);
+    if (!el || !c) return;
+    c.textContent = `（${el.value.length}/${max}）`;
+    c.style.color = el.value.length > max ? '#c0392b' : '#888';
+  };
+  f('stTitleJa', 'stTitleJaCount', 40); f('stDescJa', 'stDescJaCount', 160);
+  f('stTitleEn', 'stTitleEnCount', 40); f('stDescEn', 'stDescEnCount', 160);
+  stStoreSave();
+}
+function stStoreSave() {
+  try {
+    localStorage.setItem('lineStampSimpleStoreText', JSON.stringify({
+      tj: document.getElementById('stTitleJa').value, dj: document.getElementById('stDescJa').value,
+      te: document.getElementById('stTitleEn').value, de: document.getElementById('stDescEn').value,
+    }));
+  } catch (_) {}
+}
+function stStoreLoad() {
+  try {
+    const d = JSON.parse(localStorage.getItem('lineStampSimpleStoreText') || '{}');
+    if (d.tj) document.getElementById('stTitleJa').value = d.tj;
+    if (d.dj) document.getElementById('stDescJa').value = d.dj;
+    if (d.te) document.getElementById('stTitleEn').value = d.te;
+    if (d.de) document.getElementById('stDescEn').value = d.de;
+    stCount();
+  } catch (_) {}
+}
+async function stCopy(id) {
+  const el = document.getElementById(id);
+  if (!el || !el.value) return;
+  try { await navigator.clipboard.writeText(el.value); }
+  catch (_) { el.select(); document.execCommand('copy'); }
+  const msg = document.getElementById('stTransMsg');
+  msg.textContent = '📋 コピーしました。申請フォームに貼り付けてください。';
+  msg.style.color = '#06843c';
+}
+
 // ========== Init ==========
 // ステージ外でマウスを離してもドラッグを終了させる
 window.addEventListener('mouseup', () => { if (_crop) _crop.dragging = false; if (_edit) { if (_edit.lassoing) editUp(); else { _edit.drawing = false; _edit.panning = false; _edit.imgDrag = null; } } });
@@ -4833,6 +4950,7 @@ refreshSaveBtn();
 refreshFolderBtn();
 renderStoreLangPills();
 renderStoreTexts();
+stStoreLoad();
 // かんたん版：API設定モーダルは使いません（起動時に開かない）
 </script>
 </body>
