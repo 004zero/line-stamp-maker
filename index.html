@@ -445,7 +445,8 @@
         自分で用意した画像から動くスタンプを作れます（API課金なし）。<br>
         <strong>📷 画像に動きを付ける</strong>＝1枚の絵に「ぷるぷる」「ぴょんぴょん」などの動きを自動で付けます（複数まとめてアップOK）。<br>
         <strong>🎬 コマ画像でパラパラアニメ</strong>＝自分で描いた複数のコマ画像を、並べた順に再生するアニメにします（2〜20枚）。<br>
-        <strong>✂ 切り抜きからパラパラ</strong>＝「③参考画像」で✂切り抜いてトレイに入れたコマを、そのままパラパラのコマにします。
+        <strong>✂ 切り抜きからパラパラ</strong>＝「③参考画像」で✂切り抜いてトレイに入れたコマを、そのままパラパラのコマにします。<br>
+        <strong>▦ シートを分割して取り込み</strong>＝4×4などのグリッド状スタンプシート1枚を、コマごとに分割してスタンプ一覧（④）へ。絵がグリッドを少しはみ出していてもOK・背景は自動で透明化します。
       </div>
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
         <input type="file" id="ownImgFile" accept="image/*" multiple style="display:none" onchange="onOwnImages(event)">
@@ -453,6 +454,8 @@
         <input type="file" id="frameImgFile" accept="image/*" multiple style="display:none" onchange="onFrameImages(event)">
         <button class="btn btn-primary" id="frameImgBtn" onclick="document.getElementById('frameImgFile').click()">🎬 コマ画像でパラパラアニメ</button>
         <button class="btn btn-primary" id="frameClipsBtn" onclick="addFramesFromClips()" title="「③参考画像」で✂切り抜いてトレイに入れたコマから、パラパラアニメを作ります">✂ 切り抜きからパラパラ</button>
+        <input type="file" id="sheetSplitFile" accept="image/*" style="display:none" onchange="onSheetSplit(event)">
+        <button class="btn btn-primary" id="sheetSplitBtn" onclick="document.getElementById('sheetSplitFile').click()" title="4×4などのグリッド状スタンプシート1枚を、コマごとに分割してスタンプ一覧へ取り込みます（はみ出し対応・背景透明化つき）">▦ シートを分割して取り込み</button>
         <label style="font-size:12px;color:#555;display:inline-flex;align-items:center;gap:5px;cursor:pointer" title="外周の白背景だけを透明にします（LINE用・推奨）">
           <input type="checkbox" id="ownBgRemoveChk" checked>
           白い背景を透明にする
@@ -3666,6 +3669,189 @@ function removeAnim() {
 }
 
 // ===== ⑤ 手持ち画像 → 動きを付ける（スタンプ一覧に追加） =====
+// ===== ▦ シート分割取り込み：4×4等のグリッド状シートをコマごとにスタンプ化 =====
+// スマート分割：絵のかたまり（連結成分）を「一番多くのピクセルが入っているコマ」に
+// 多数決で割り当てるので、グリッド線をはみ出したツノ・マント等も丸ごと切り出せる。
+async function onSheetSplit(e) {
+  const f = (e.target.files || [])[0];
+  e.target.value = '';
+  if (!f) return;
+  const spec = prompt('シートの分割数を「横x縦」で入力してください。\n例：4x4（16コマ）、2x4、8x8', '4x4');
+  if (!spec) return;
+  const m = spec.trim().toLowerCase().replace(/[×＊*]/g, 'x').match(/^(\d+)\s*x\s*(\d+)$/);
+  if (!m) { alert('「4x4」のように入力してください'); return; }
+  const cols = +m[1], rows = +m[2];
+  if (cols * rows < 2 || cols * rows > 100) { alert('分割数は2〜100コマにしてください'); return; }
+  const btn = document.getElementById('sheetSplitBtn');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>分割中…'; }
+  try {
+    const { dataUrl } = await normalizeImageFile(f, 3200);
+    const img = await new Promise((ok, ng) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => ng(new Error('画像を読み込めませんでした')); i.src = dataUrl; });
+    const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
+    c.getContext('2d', { willReadFrequently: true }).drawImage(img, 0, 0);
+    let pieces = sheetSplitSmart(c, cols, rows);
+    let plainUsed = false;
+    if (!pieces) { pieces = sheetSplitPlain(c, cols, rows); plainUsed = true; }
+    if (!pieces.length) { alert('分割できるコマが見つかりませんでした'); return; }
+    const base = (f.name || 'sheet').replace(/\.[^.]+$/, '');
+    for (let i = 0; i < pieces.length; i++) {
+      state.captions.push({
+        text: `${base}_${String(i + 1).padStart(2, '0')}`,
+        emotion: '', composition: '', customPrompt: '', customStyle: '',
+        refImage: null, image: pieces[i].toDataURL('image/png').split(',')[1], status: 'done', error: null,
+      });
+    }
+    save(); renderCaptions(); renderStamps();
+    alert(`▦ ${cols}×${rows} のシートから ${pieces.length}コマをスタンプ一覧（④）に追加しました！` +
+      (plainUsed ? '\n（背景が均一でなかったため、単純な等分割になりました）' : '\n（はみ出し対応スマート分割・背景は透明化済みです）'));
+  } catch (err) {
+    alert('シートの分割に失敗しました：' + (err.message || err));
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '▦ シートを分割して取り込み'; }
+  }
+}
+// スマート分割の本体。背景が判定できないときは null を返す
+function sheetSplitSmart(srcCanvas, cols, rows) {
+  const w = srcCanvas.width, h = srcCanvas.height, N = w * h;
+  const d = srcCanvas.getContext('2d').getImageData(0, 0, w, h).data;
+  // 背景色 = 四隅の不透明ピクセルの平均
+  let br = 0, bg = 0, bb = 0, cnt = 0;
+  for (const [x, y] of [[0, 0], [w - 1, 0], [0, h - 1], [w - 1, h - 1]]) {
+    const i = (y * w + x) * 4;
+    if (d[i + 3] > 200) { br += d[i]; bg += d[i + 1]; bb += d[i + 2]; cnt++; }
+  }
+  const t2 = 40 * 40;
+  const bgLike = new Uint8Array(N);
+  for (let p = 0; p < N; p++) {
+    const i = p * 4;
+    if (d[i + 3] < 8) { bgLike[p] = 1; continue; }
+    if (!cnt) continue;
+    const dr = d[i] - br / cnt, dg = d[i + 1] - bg / cnt, db = d[i + 2] - bb / cnt;
+    if (dr * dr + dg * dg + db * db <= t2) bgLike[p] = 1;
+  }
+  // 外周から届く背景だけを除く（絵の中の白目・ハイライトは残す）
+  const reached = new Uint8Array(N), stack = [];
+  const push = (x, y) => {
+    if (x < 0 || y < 0 || x >= w || y >= h) return;
+    const p = y * w + x;
+    if (reached[p] || !bgLike[p]) return;
+    reached[p] = 1; stack.push(p);
+  };
+  for (let x = 0; x < w; x++) { push(x, 0); push(x, h - 1); }
+  for (let y = 0; y < h; y++) { push(0, y); push(w - 1, y); }
+  while (stack.length) {
+    const p = stack.pop(); const x = p % w, y = (p / w) | 0;
+    push(x + 1, y); push(x - 1, y); push(x, y + 1); push(x, y - 1);
+  }
+  const content = new Uint8Array(N);
+  let contentCnt = 0;
+  for (let p = 0; p < N; p++) { if (!reached[p]) { content[p] = 1; contentCnt++; } }
+  if (!contentCnt || contentCnt > N * 0.95) return null;
+  // 連結成分ラベリング（膨張なし＝隣のコマの絵とくっつかない）
+  const label = new Int32Array(N).fill(-1);
+  let nLabels = 0;
+  const q = [];
+  for (let p0 = 0; p0 < N; p0++) {
+    if (!content[p0] || label[p0] >= 0) continue;
+    const lab = nLabels++;
+    label[p0] = lab; q.length = 0; q.push(p0);
+    while (q.length) {
+      const p = q.pop(); const x = p % w, y = (p / w) | 0;
+      if (x + 1 < w && content[p + 1] && label[p + 1] < 0) { label[p + 1] = lab; q.push(p + 1); }
+      if (x > 0 && content[p - 1] && label[p - 1] < 0) { label[p - 1] = lab; q.push(p - 1); }
+      if (y + 1 < h && content[p + w] && label[p + w] < 0) { label[p + w] = lab; q.push(p + w); }
+      if (y > 0 && content[p - w] && label[p - w] < 0) { label[p - w] = lab; q.push(p - w); }
+    }
+  }
+  // 各かたまりを「一番多くのピクセルが入っているコマ」へ割り当て
+  const cells = cols * rows;
+  const counts = new Int32Array(nLabels * cells);
+  for (let p = 0; p < N; p++) {
+    if (!content[p]) continue;
+    const x = p % w, y = (p / w) | 0;
+    const cx = Math.min(cols - 1, (x * cols / w) | 0), cy = Math.min(rows - 1, (y * rows / h) | 0);
+    counts[label[p] * cells + cy * cols + cx]++;
+  }
+  const assign = new Int32Array(nLabels);
+  for (let lab = 0; lab < nLabels; lab++) {
+    let best = 0, bestN = -1;
+    for (let cell = 0; cell < cells; cell++) {
+      const n = counts[lab * cells + cell];
+      if (n > bestN) { bestN = n; best = cell; }
+    }
+    assign[lab] = best;
+  }
+  // コマごとの範囲を集計
+  const boxes = Array.from({ length: cells }, () => ({ minX: w, minY: h, maxX: -1, maxY: -1, count: 0 }));
+  for (let p = 0; p < N; p++) {
+    if (!content[p]) continue;
+    const bx = boxes[assign[label[p]]];
+    const x = p % w, y = (p / w) | 0;
+    if (x < bx.minX) bx.minX = x; if (x > bx.maxX) bx.maxX = x;
+    if (y < bx.minY) bx.minY = y; if (y > bx.maxY) bx.maxY = y;
+    bx.count++;
+  }
+  // コマ順（上→下・左→右）に、割り当てられたかたまりだけを透過PNGへ
+  const minCount = Math.max(30, N * 0.00005);
+  const pieces = [];
+  for (let cell = 0; cell < cells; cell++) {
+    const bx = boxes[cell];
+    if (bx.maxX < 0 || bx.count < minCount) continue; // 空のコマ
+    const bw = bx.maxX - bx.minX + 1, bh = bx.maxY - bx.minY + 1;
+    const pc = document.createElement('canvas'); pc.width = bw; pc.height = bh;
+    const px = pc.getContext('2d');
+    const out = px.createImageData(bw, bh); const od = out.data;
+    for (let y = bx.minY; y <= bx.maxY; y++) for (let x = bx.minX; x <= bx.maxX; x++) {
+      const p = y * w + x;
+      if (content[p] && assign[label[p]] === cell) {
+        const si = p * 4, oi = ((y - bx.minY) * bw + (x - bx.minX)) * 4;
+        od[oi] = d[si]; od[oi + 1] = d[si + 1]; od[oi + 2] = d[si + 2]; od[oi + 3] = d[si + 3];
+      }
+    }
+    px.putImageData(out, 0, 0);
+    pieces.push(pc);
+  }
+  return pieces;
+}
+// 等分割（背景そのまま）。スマート分割できない画像用のフォールバック
+function sheetSplitPlain(srcCanvas, cols, rows) {
+  const w = srcCanvas.width, h = srcCanvas.height;
+  const sd = srcCanvas.getContext('2d').getImageData(0, 0, w, h).data;
+  // 空コマ判定用：四隅の背景色
+  let br = 0, bg = 0, bb = 0, cnt = 0;
+  for (const [x, y] of [[0, 0], [w - 1, 0], [0, h - 1], [w - 1, h - 1]]) {
+    const i = (y * w + x) * 4;
+    if (sd[i + 3] > 200) { br += sd[i]; bg += sd[i + 1]; bb += sd[i + 2]; cnt++; }
+  }
+  if (cnt) { br /= cnt; bg /= cnt; bb /= cnt; }
+  const t2 = 40 * 40;
+  const pieces = [];
+  for (let r = 0; r < rows; r++) {
+    for (let col = 0; col < cols; col++) {
+      const x0 = Math.round(col * w / cols), x1 = Math.round((col + 1) * w / cols);
+      const y0 = Math.round(r * h / rows), y1 = Math.round((r + 1) * h / rows);
+      const bw = x1 - x0, bh = y1 - y0;
+      // 空コマ判定
+      let n = 0; const need = Math.max(30, bw * bh * 0.001);
+      let empty = true;
+      for (let y = y0; y < y1 && empty; y++) for (let x = x0; x < x1; x++) {
+        const i = (y * w + x) * 4;
+        if (sd[i + 3] < 8) continue;
+        if (cnt) {
+          const dr = sd[i] - br, dg = sd[i + 1] - bg, db = sd[i + 2] - bb;
+          if (dr * dr + dg * dg + db * db <= t2) continue;
+        }
+        if (++n >= need) { empty = false; break; }
+      }
+      if (empty) continue;
+      const pc = document.createElement('canvas'); pc.width = bw; pc.height = bh;
+      pc.getContext('2d').drawImage(srcCanvas, x0, y0, bw, bh, 0, 0, bw, bh);
+      pieces.push(pc);
+    }
+  }
+  return pieces;
+}
+
 async function onOwnImages(e) {
   const files = Array.from(e.target.files || []);
   e.target.value = '';
