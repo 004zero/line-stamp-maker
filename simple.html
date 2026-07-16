@@ -640,7 +640,7 @@
   <div class="modal-bg" id="clipPickerModal">
     <div class="modal" style="max-width:560px">
       <h2>✂ 切り抜きを選んで割り当て</h2>
-      <div class="note" style="margin-top:0;margin-bottom:12px">使いたい切り抜きを<strong>クリック</strong>すると、このスタンプの参考画像になります。</div>
+      <div class="note" id="clipPickerNote" style="margin-top:0;margin-bottom:12px">使いたい切り抜きを<strong>クリック</strong>すると、このスタンプの参考画像になります。</div>
       <div id="clipPickerGrid" style="display:flex;flex-wrap:wrap;gap:10px;max-height:50vh;overflow-y:auto"></div>
       <div class="modal-actions">
         <button class="btn btn-secondary" onclick="closeClipPicker()">閉じる</button>
@@ -2355,10 +2355,15 @@ async function editAIBackground() {
 
 // ========== 切り抜き選択（クリックで割り当て） ==========
 let _clipPickTarget = null;
+let _clipPickMode = null; // 'use' = 選んだ切り抜きをそのままスタンプ画像にする
 function openClipPicker(i) {
   const clips = state.clips || [];
-  if (!clips.length) { alert('切り抜きトレイが空です。\n「③ 参考画像」→「✂ 1コマを切り抜く」で先にトレイに入れてください。'); return; }
+  if (!clips.length) { _clipPickMode = null; alert('切り抜きトレイが空です。\n「① 画像を取り込む」のサムネイルをクリック→「✂ 1コマを切り抜く」で先にトレイに入れてください。'); return; }
   _clipPickTarget = i;
+  const note = document.getElementById('clipPickerNote');
+  if (note) note.innerHTML = _clipPickMode === 'use'
+    ? '使いたい切り抜きを<strong>クリック</strong>すると、<strong>そのままこのスタンプの画像</strong>になります（AI不要・無料）。'
+    : '使いたい切り抜きを<strong>クリック</strong>すると、このスタンプの参考画像になります。';
   document.getElementById('clipPickerGrid').innerHTML = clips.map((cl, idx) =>
     `<div class="clip-thumb" style="cursor:pointer;width:90px;height:90px" onclick="pickClip(${idx})" title="クリックで割り当て"><img src="${cl.dataUrl}"></div>`
   ).join('');
@@ -2367,14 +2372,41 @@ function openClipPicker(i) {
 function closeClipPicker() {
   document.getElementById('clipPickerModal').classList.remove('open');
   _clipPickTarget = null;
+  _clipPickMode = null;
 }
 function pickClip(idx) {
   const clip = (state.clips || [])[idx];
-  if (clip && _clipPickTarget != null && state.captions[_clipPickTarget]) {
-    state.captions[_clipPickTarget].refImage = { name: clip.name, dataUrl: clip.dataUrl, blob: clip.blob };
+  const target = _clipPickTarget, mode = _clipPickMode;
+  if (clip && target != null && state.captions[target]) {
+    state.captions[target].refImage = { name: clip.name, dataUrl: clip.dataUrl, blob: clip.blob };
+    closeClipPicker();
+    if (mode === 'use') { applyRefAsImage(target); return; }
     renderStamps();
+    return;
   }
   closeClipPicker();
+}
+// ✨ 切り抜きを選んで、そのままこのスタンプの画像にする（AI不要・無料）
+function useClipAsImage(i) {
+  const c = state.captions[i];
+  if (!c) return;
+  if (c.refImage) { applyRefAsImage(i); return; } // ✂で割り当て済みならそれを使う
+  _clipPickMode = 'use';
+  openClipPicker(i);
+}
+// 割り当て済みの切り抜き（参考画像）を、スタンプ画像として確定する
+async function applyRefAsImage(i) {
+  const c = state.captions[i];
+  if (!c || !c.refImage) return;
+  let dataUrl = c.refImage.dataUrl;
+  const bgRemove = document.getElementById('bgRemoveChk') ? document.getElementById('bgRemoveChk').checked : false;
+  if (bgRemove) { try { dataUrl = await removeBg(dataUrl, state.bgRemoveMode); } catch (e) { console.error(e); } }
+  c.image = dataUrl.split(',')[1];
+  c.status = 'done'; c.error = null;
+  await refreshAnim(i); // アニメ設定済みなら新しい画像で作り直す
+  save();
+  renderStamps();
+  refreshMainSrcSelect();
 }
 
 // ========== 1個だけお試し生成（キャラ決定用） ==========
@@ -3360,6 +3392,8 @@ function renderStamps() {
         <textarea placeholder="このスタンプだけの追加指示（任意）：例『笑顔で両手を上げる』『青色の服にする』" oninput="updateCustomPrompt(${i}, this.value)">${escHtml(c.customPrompt || '')}</textarea>
       </div>
       <div class="stamp-actions">
+        <button class="btn btn-secondary btn-sm" onclick="openClipPicker(${i})" title="切り抜きトレイから選んで、このスタンプの参考画像に割り当てる">✂</button>
+        <button class="btn btn-secondary btn-sm" onclick="useClipAsImage(${i})" title="切り抜きを選んで、そのままこのスタンプの画像にする（AI不要・無料。✂で割り当て済みならその切り抜きを使います）">✨</button>
         ${c.image ? `<button class="btn btn-secondary btn-sm" onclick="openAnim(${i})" title="アニメ化（動くスタンプにする）">🎞</button>` : ''}
         ${c.image ? `<button class="btn btn-secondary btn-sm" onclick="openEdit(${i})" title="修正（消しゴム・ペン・白背景けし）">🖊</button>` : ''}
         ${c.image ? `<button class="btn btn-secondary btn-sm" onclick="downloadOne(${i})" title="この1枚をダウンロード">⬇</button>` : ''}
