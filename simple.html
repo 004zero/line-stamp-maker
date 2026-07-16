@@ -345,7 +345,7 @@
         手持ちの写真やイラストから、そのままスタンプを作れます（API課金なし）。取り込んだ画像は下の「スタンプ画像」の一覧に追加され、文字入れ・修正・アニメ化・ZIP書き出しができます。<br>
         <strong>📷 画像を取り込む</strong>＝写真やイラストを複数まとめて追加（そのままスタンプになります／あとで動きを付けることも）。<br>
         <strong>🎬 コマ画像でパラパラアニメ</strong>＝自分で描いた複数のコマ画像を、並べた順に再生する動くスタンプにします（2〜20枚）。<br>
-        <strong>▦ シートを分割して取り込み</strong>＝4×4などのグリッド状スタンプシート1枚を、コマごとに分割してスタンプ一覧へ。絵がグリッドを少しはみ出していてもOK・背景は自動で透明化します。
+        <strong>▦ シートを分割して取り込み</strong>＝4×4などのグリッド状スタンプシート1枚を、コマごとに分割してスタンプ一覧へ。絵がグリッドを少しはみ出していてもOK・背景は自動で透明化します（<strong>背景削除の強さも指定できます</strong>。背景が残るときは大きく、絵まで消えるときは小さく）。
       </div>
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
         <input type="file" id="ownImgFile" accept="image/*" multiple style="display:none" onchange="onOwnImages(event)">
@@ -4031,6 +4031,11 @@ async function onSheetSplit(e) {
   if (!m) { alert('「4x4」のように入力してください'); return; }
   const cols = +m[1], rows = +m[2];
   if (cols * rows < 2 || cols * rows > 100) { alert('分割数は2〜100コマにしてください'); return; }
+  // 背景削除の強さ（色の近さの許容値）。大きいほど背景に近い色を広く透明にする
+  const tolIn = prompt('背景削除の強さを入力してください（10〜120）\n\n・ふつう：40\n・背景が消えずに残ってしまう → 60〜80\n・絵の色まで消えてしまう → 20〜30', '40');
+  if (tolIn === null) return;
+  let tol = parseInt(tolIn, 10);
+  if (!(tol >= 10 && tol <= 120)) { tol = 40; }
   const btn = document.getElementById('sheetSplitBtn');
   if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>分割中…'; }
   try {
@@ -4038,9 +4043,9 @@ async function onSheetSplit(e) {
     const img = await new Promise((ok, ng) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => ng(new Error('画像を読み込めませんでした')); i.src = dataUrl; });
     const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
     c.getContext('2d', { willReadFrequently: true }).drawImage(img, 0, 0);
-    let pieces = sheetSplitSmart(c, cols, rows);
+    let pieces = sheetSplitSmart(c, cols, rows, tol);
     let plainUsed = false;
-    if (!pieces) { pieces = sheetSplitPlain(c, cols, rows); plainUsed = true; }
+    if (!pieces) { pieces = sheetSplitPlain(c, cols, rows, tol); plainUsed = true; }
     if (!pieces.length) { alert('分割できるコマが見つかりませんでした'); return; }
     const base = (f.name || 'sheet').replace(/\.[^.]+$/, '');
     for (let i = 0; i < pieces.length; i++) {
@@ -4052,7 +4057,8 @@ async function onSheetSplit(e) {
     }
     save(); renderCaptions(); renderStamps();
     alert(`▦ ${cols}×${rows} のシートから ${pieces.length}コマをスタンプ一覧に追加しました！` +
-      (plainUsed ? '\n（背景が均一でなかったため、単純な等分割になりました）' : '\n（はみ出し対応スマート分割・背景は透明化済みです）'));
+      (plainUsed ? '\n（背景が均一でなかったため、単純な等分割になりました）' : `\n（はみ出し対応スマート分割・背景は透明化済み／強さ：${tol}）`) +
+      '\n背景が残る・消えすぎのときは、もう一度取り込んで「強さ」の数字を変えてみてください。');
   } catch (err) {
     alert('シートの分割に失敗しました：' + (err.message || err));
   } finally {
@@ -4060,7 +4066,7 @@ async function onSheetSplit(e) {
   }
 }
 // スマート分割の本体。背景が判定できないときは null を返す
-function sheetSplitSmart(srcCanvas, cols, rows) {
+function sheetSplitSmart(srcCanvas, cols, rows, tol = 40) {
   const w = srcCanvas.width, h = srcCanvas.height, N = w * h;
   const d = srcCanvas.getContext('2d').getImageData(0, 0, w, h).data;
   // 背景色 = 四隅の不透明ピクセルの平均
@@ -4069,7 +4075,7 @@ function sheetSplitSmart(srcCanvas, cols, rows) {
     const i = (y * w + x) * 4;
     if (d[i + 3] > 200) { br += d[i]; bg += d[i + 1]; bb += d[i + 2]; cnt++; }
   }
-  const t2 = 40 * 40;
+  const t2 = tol * tol;
   const bgLike = new Uint8Array(N);
   for (let p = 0; p < N; p++) {
     const i = p * 4;
@@ -4163,7 +4169,7 @@ function sheetSplitSmart(srcCanvas, cols, rows) {
   return pieces;
 }
 // 等分割（背景そのまま）。スマート分割できない画像用のフォールバック
-function sheetSplitPlain(srcCanvas, cols, rows) {
+function sheetSplitPlain(srcCanvas, cols, rows, tol = 40) {
   const w = srcCanvas.width, h = srcCanvas.height;
   const sd = srcCanvas.getContext('2d').getImageData(0, 0, w, h).data;
   // 空コマ判定用：四隅の背景色
@@ -4173,7 +4179,7 @@ function sheetSplitPlain(srcCanvas, cols, rows) {
     if (sd[i + 3] > 200) { br += sd[i]; bg += sd[i + 1]; bb += sd[i + 2]; cnt++; }
   }
   if (cnt) { br /= cnt; bg /= cnt; bb /= cnt; }
-  const t2 = 40 * 40;
+  const t2 = tol * tol;
   const pieces = [];
   for (let r = 0; r < rows; r++) {
     for (let col = 0; col < cols; col++) {
