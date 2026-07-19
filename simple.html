@@ -3796,20 +3796,81 @@ async function buildStampApng(imgB64, effectKey, seconds, W, H, playsOverride) {
   return { b64: u8ToB64(u8), size: u8.length };
 }
 
-// LINEの検証に通りやすい形式でAPNGを作る：
-// まず32bit RGBA（フルカラー・forbidPlte）で試し、300KBを超える場合だけ色数を落として再圧縮。
+// ===== LINE互換APNGエンコーダ（各フレームを「フルフレーム」で書く厳密版） =====
+// UPNG.encode は各フレームを「変化した部分だけの小さな矩形」に切り出す差分最適化を行うため、
+// LINEの検証で「適切なAPNGではありません」と弾かれる。ここでは常に全画面フレームで書き出す。
+function _apngChunk(type, data) {
+  const len = data.length, out = new Uint8Array(12 + len), dv = new DataView(out.buffer);
+  dv.setUint32(0, len);
+  for (let i = 0; i < 4; i++) out[4 + i] = type.charCodeAt(i);
+  out.set(data, 8);
+  dv.setUint32(8 + len, _crc32(out, 4, 4 + len));
+  return out;
+}
+function _deflateFrameRGBA(px, W, H) {
+  const raw = new Uint8Array(H * (1 + W * 4));
+  let o = 0;
+  for (let y = 0; y < H; y++) { raw[o++] = 0; raw.set(px.subarray(y * W * 4, (y + 1) * W * 4), o); o += W * 4; }
+  return pako.deflate(raw, { level: 9 });
+}
+function encodeApngStrict(frameBufs, W, H, dels, plays) {
+  const parts = [];
+  parts.push(new Uint8Array([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]));
+  const ihdr = new Uint8Array(13), d1 = new DataView(ihdr.buffer);
+  d1.setUint32(0, W); d1.setUint32(4, H);
+  ihdr[8] = 8;  // bit depth
+  ihdr[9] = 6;  // color type 6 = RGBA
+  parts.push(_apngChunk('IHDR', ihdr));
+  const n = frameBufs.length, anim = n > 1;
+  let seq = 0;
+  if (anim) {
+    const actl = new Uint8Array(8), d2 = new DataView(actl.buffer);
+    d2.setUint32(0, n);
+    d2.setUint32(4, plays || 0);   // LINEはループ回数の明示が必要（0=無限は不可）
+    parts.push(_apngChunk('acTL', actl));
+  }
+  frameBufs.forEach((fb, idx) => {
+    const px = new Uint8Array(fb);
+    const comp = _deflateFrameRGBA(px, W, H);
+    if (anim) {
+      const fctl = new Uint8Array(26), d3 = new DataView(fctl.buffer);
+      d3.setUint32(0, seq++);
+      d3.setUint32(4, W); d3.setUint32(8, H);    // 常にフルフレーム
+      d3.setUint32(12, 0); d3.setUint32(16, 0);  // オフセットなし
+      d3.setUint16(20, Math.max(10, Math.round(dels[idx] || 100)));
+      d3.setUint16(22, 1000);                    // delay = ms/1000秒
+      fctl[24] = 0;  // dispose_op = NONE
+      fctl[25] = 0;  // blend_op   = SOURCE（透過を正しく置換）
+      parts.push(_apngChunk('fcTL', fctl));
+    }
+    if (idx === 0) parts.push(_apngChunk('IDAT', comp));
+    else {
+      const fd = new Uint8Array(4 + comp.length);
+      new DataView(fd.buffer).setUint32(0, seq++);
+      fd.set(comp, 4);
+      parts.push(_apngChunk('fdAT', fd));
+    }
+  });
+  parts.push(_apngChunk('IEND', new Uint8Array(0)));
+  let total = 0; parts.forEach(p => total += p.length);
+  const out = new Uint8Array(total); let o = 0;
+  parts.forEach(p => { out.set(p, o); o += p.length; });
+  return out;
+}
+// 300KBに収まるまで、透過を壊さずに色階調だけ落として再圧縮する
 function _encodeApngWithinLimit(frames, W, H, dels, plays) {
-  const attempts = [
-    [0, true],    // ロスレスRGBA（最優先・最も互換性が高い）
-    [256, true],  // 256色に減色しつつRGBA形式を維持
-    [128, true],
-    [64, true],
-    [32, false],  // 最終手段（パレット形式）
-  ];
-  let u8 = null;
-  for (const [cnum, noPlte] of attempts) {
-    const buf = UPNG.encode(frames, W, H, cnum, dels, noPlte);
-    u8 = patchApngPlays(buf, plays);
+  let u8 = encodeApngStrict(frames, W, H, dels, plays);
+  if (u8.length <= ANIM_MAX_BYTES) return u8;
+  for (const lv of [32, 16, 8]) {
+    const q = frames.map(fb => {
+      const o = new Uint8Array(fb.slice(0)), step = 256 / lv;
+      for (let i = 0; i < o.length; i += 4) {
+        if (o[i + 3] === 0) continue;
+        for (let k = 0; k < 3; k++) o[i + k] = Math.min(255, Math.round(o[i + k] / step) * step);
+      }
+      return o.buffer;
+    });
+    u8 = encodeApngStrict(q, W, H, dels, plays);
     if (u8.length <= ANIM_MAX_BYTES) break;
   }
   return u8;
