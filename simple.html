@@ -3466,15 +3466,31 @@ function sizeImage(src, maxW, maxH, exact) {
 async function downloadOne(i) {
   const c = state.captions[i];
   if (!c.image) return;
-  const b64 = await sizeImage(b64src(c.image), LINE_SIZE.stampW, LINE_SIZE.stampH, false);
+  let b64, chk = null;
+  if (c.anim) {
+    // 🎞 アニメ付きスタンプは「静止画」ではなくAPNGとして保存する（ZIPと同じ内容を作り直す）
+    if (c.anim.custom && Array.isArray(c.anim.frames) && c.anim.frames.length) {
+      const list = [];
+      for (const du of c.anim.frames) list.push({ img: await loadImage(du) });
+      b64 = (await buildFramesApng(list, c.anim.seconds)).b64;
+    } else {
+      b64 = (await buildStampApng(c.image, c.anim.effect, c.anim.seconds)).b64;
+    }
+    c.anim.apng = b64;
+    chk = inspectForLine(b64ToU8(b64), ANIM_W, ANIM_H, 'stamp');
+  } else {
+    b64 = await sizeImage(b64src(c.image), LINE_SIZE.stampW, LINE_SIZE.stampH, false);
+    if (ALPHA_AUTOFIX) b64 = await alphaFixB64(b64);
+  }
   const blob = b64ToBlob(b64);
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  // 🅰セリフを入れない時は連番のみのファイル名に（画像に文字が無いので分かりにくくならない）
-  a.download = state.noCaption ? `${String(i + 1).padStart(2, '0')}.png` : `${String(i + 1).padStart(2, '0')}_${safeName(c.text)}.png`;
+  // LINEは 01.png〜40.png の連番でないとアップロードで弾かれる
+  a.download = `${String(i + 1).padStart(2, '0')}.png`;
   a.click();
   URL.revokeObjectURL(url);
+  if (chk) showLineCheckReport([{ name: a.download, res: chk }]);
 }
 
 function safeName(s) {
