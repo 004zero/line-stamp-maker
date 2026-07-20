@@ -89,6 +89,10 @@
     .modal h2 { font-size: 17px; margin-bottom: 16px; color: #06c755; }
     .modal .note { font-size: 11px; color: #888; margin-top: 8px; line-height: 1.6; }
     .modal-actions { display: flex; gap: 9px; justify-content: flex-end; margin-top: 18px; }
+    /* 🖊修正モーダルを画面いっぱいに広げる（⛶ボタンで切替） */
+    .modal.wide { max-width: 98vw !important; width: 98vw !important; max-height: 96vh !important; padding: 16px 18px; }
+    .modal.wide #editCanvas { max-height: 74vh !important; }
+    .modal.wide .note { margin-bottom: 6px !important; }
 
     .empty { text-align: center; padding: 30px 20px; color: #aaa; font-size: 13px; }
     .empty .icon { font-size: 36px; margin-bottom: 8px; opacity: 0.5; }
@@ -555,8 +559,10 @@
 
   <!-- 画像修正モーダル -->
   <div class="modal-bg" id="editModal">
-    <div class="modal" style="max-width:640px">
-      <h2>🖊 スタンプを修正</h2>
+    <div class="modal" id="editModalBox" style="max-width:640px">
+      <h2 style="display:flex;align-items:center;gap:10px">🖊 スタンプを修正
+        <button class="btn btn-secondary btn-sm" id="editWideBtn" onclick="toggleEditWide()" style="margin-left:auto;font-size:12px;font-weight:400" title="編集画面を画面いっぱいに広げます（もう一度押すと戻ります）">⛶ 大きく表示</button>
+      </h2>
       <div class="note" style="margin-top:0;margin-bottom:10px">🩹 消しゴム／🖊 ペン／💧 スポイト＝色を拾う／🪄 自動選択＝<strong>同じ色のかたまりをクリックで即消す</strong>／⭕ なげなわ＝囲んだ範囲を消す／🎯 範囲選択＝<strong>同じ色の範囲を選んで、📋コピー・🎨色替え・🗑削除ができる</strong>（パソコンは<strong>Shiftキーを押しながらクリックで範囲を追加</strong>）。透明部分は市松模様で表示されます。</div>
       <div class="note" id="editParaNote" style="display:none;margin-top:0;margin-bottom:8px;background:#f3ecfd;border-left:3px solid #7b3fbf;color:#5a3d85">🎞 パラパラアニメ：下の<strong>コマ一覧から選んで、1コマずつ</strong>修正できます。消しゴム・ペンの修正を全部のコマにコピーしたいときは「⧉ 全コマへ反映」。</div>
       <div id="editFrameStrip" style="display:none;flex-wrap:wrap;gap:6px;margin-bottom:10px;align-items:flex-start"></div>
@@ -1360,6 +1366,7 @@ let _edit = null;
 function openEdit(i) {
   const c = state.captions[i];
   if (!c || !c.image) { alert('先に画像を作成/割り当ててください'); return; }
+  _restoreEditWide();   // ⛶ 前回「大きく表示」にしていたら維持する
   // パラパラ（コマ持ち込み）ならコマ一覧を出して1コマずつ修正できるようにする
   const isPara = !!(c.anim && c.anim.custom && Array.isArray(c.anim.frames) && c.anim.frames.length);
   const frames = isPara ? c.anim.frames.slice() : null;
@@ -1500,6 +1507,22 @@ function editZoomReset() {
   if (!_edit) return;
   _edit.view = { z: 1, ox: 0, oy: 0 };
   _applyView();
+}
+// ⛶ 修正モーダルを画面いっぱいに広げる／元に戻す（設定は次回も維持）
+function toggleEditWide(force) {
+  const box = document.getElementById('editModalBox');
+  if (!box) return;
+  const on = (typeof force === 'boolean') ? force : !box.classList.contains('wide');
+  box.classList.toggle('wide', on);
+  const b = document.getElementById('editWideBtn');
+  if (b) b.textContent = on ? '⛶ 元のサイズ' : '⛶ 大きく表示';
+  try { localStorage.setItem('lsm_editWide', on ? '1' : '0'); } catch (_) {}
+  if (typeof _applyView === 'function' && _edit) _applyView();
+}
+function _restoreEditWide() {
+  let on = false;
+  try { on = localStorage.getItem('lsm_editWide') === '1'; } catch (_) {}
+  toggleEditWide(on);
 }
 function _editXY(e) {
   const canvas = _edit.canvas, r = canvas.getBoundingClientRect();
