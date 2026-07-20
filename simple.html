@@ -1510,17 +1510,59 @@ function editZoomReset() {
   _edit.view = { z: 1, ox: 0, oy: 0 };
   _applyView();
 }
-// ▶ 一覧のアニメスタンプを最初から再生し直す
-// （APNGはループ回数がLINE規格で1〜4回に制限されるため、数秒で止まる。img要素を作り直すと頭から再生される）
-function replayAnim(i, ev) {
+// ▶ 一覧のアニメスタンプを再生する
+// ブラウザのAPNG自動再生は「1〜4回で停止」し、再代入しても再生し直せないため、
+// コマ画像を自前で順番に描画する（＝確実に動く）。表示中だけcanvasに差し替える。
+const _replayTimers = {};
+async function replayAnim(i, ev) {
   if (ev) { ev.stopPropagation(); ev.preventDefault(); }
-  const img = document.getElementById('stampImg' + i);
-  if (!img) return;
-  const src = img.getAttribute('src');
-  const fresh = img.cloneNode(false);
-  fresh.setAttribute('src', '');
-  img.parentNode.replaceChild(fresh, img);
-  requestAnimationFrame(() => fresh.setAttribute('src', src));
+  const c = state.captions[i];
+  const holder = document.getElementById('stampImg' + i);
+  if (!holder || !c || !c.anim) return;
+  if (_replayTimers[i]) { clearInterval(_replayTimers[i]); delete _replayTimers[i]; }
+
+  // 表示するコマを用意する（パラパラは元コマ、エフェクト系はAPNGを展開）
+  let imgs = [];
+  try {
+    if (c.anim.custom && Array.isArray(c.anim.frames) && c.anim.frames.length) {
+      imgs = await Promise.all(c.anim.frames.map(du => loadImage(du)));
+    } else if (c.anim.apng) {
+      const u8 = b64ToU8(c.anim.apng);
+      const png = UPNG.decode(u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.length));
+      imgs = UPNG.toRGBA8(png).map(buf => {
+        const cv = document.createElement('canvas'); cv.width = png.width; cv.height = png.height;
+        cv.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(buf), png.width, png.height), 0, 0);
+        return cv;
+      });
+    }
+  } catch (e) { console.warn('再生用コマの取得に失敗:', e); }
+  if (!imgs.length) return;
+
+  // <img> を canvas に差し替える（見た目は同じ）
+  let cv = holder;
+  if (holder.tagName === 'IMG') {
+    cv = document.createElement('canvas');
+    cv.id = holder.id;
+    cv.width = imgs[0].naturalWidth || imgs[0].width;
+    cv.height = imgs[0].naturalHeight || imgs[0].height;
+    cv.style.width = '100%'; cv.style.height = '100%'; cv.style.objectFit = 'contain';
+    holder.parentNode.replaceChild(cv, holder);
+  }
+  const g = cv.getContext('2d');
+  const per = Math.max(50, ((c.anim.seconds || 2) * 1000) / imgs.length);
+  const maxLoops = Math.max(1, Math.floor(4000 / ((c.anim.seconds || 2) * 1000)));
+  let k = 0, loops = 0;
+  const draw = () => {
+    g.clearRect(0, 0, cv.width, cv.height);
+    g.drawImage(imgs[k], 0, 0, cv.width, cv.height);
+    k++;
+    if (k >= imgs.length) {
+      k = 0; loops++;
+      if (loops >= maxLoops) { clearInterval(_replayTimers[i]); delete _replayTimers[i]; }
+    }
+  };
+  draw();
+  _replayTimers[i] = setInterval(draw, per);
 }
 // ⛶ 修正モーダルを画面いっぱいに広げる／元に戻す（設定は次回も維持）
 function toggleEditWide(force) {
