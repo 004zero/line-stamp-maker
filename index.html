@@ -4101,7 +4101,7 @@ async function downloadAnimOne() {
     const url = URL.createObjectURL(b64ToBlob(r.b64));
     const a = document.createElement('a');
     a.href = url;
-    a.download = state.noCaption ? `${String(i + 1).padStart(2, '0')}_anim.png` : `${String(i + 1).padStart(2, '0')}_${safeName(state.captions[i].text)}_anim.png`;
+    a.download = `${String(i + 1).padStart(2, '0')}.png`;   // LINE規格の連番（01.png〜）
     a.click();
     URL.revokeObjectURL(url);
   } catch (e) {
@@ -4563,10 +4563,14 @@ async function downloadFramesApng() {
   btn.disabled = true;
   try {
     const r = await buildFramesApng(_frames.list, _frames.seconds);
+    // LINEは 01.png〜40.png の連番でないとアップロードで弾かれるため番号を確認する
+    const inp = prompt('LINEにアップロードするスタンプ番号を入れてください（1〜40）。\n※この番号でファイル名が「01.png」の形式になります。', '1');
+    if (inp === null) return;
+    const num = Math.max(1, Math.min(40, parseInt(inp, 10) || 1));
     const url = URL.createObjectURL(b64ToBlob(r.b64));
     const a = document.createElement('a');
     a.href = url;
-    a.download = `parapara_${new Date().toISOString().slice(0, 10)}.png`;
+    a.download = `${String(num).padStart(2, '0')}.png`;
     a.click();
     URL.revokeObjectURL(url);
   } catch (e) {
