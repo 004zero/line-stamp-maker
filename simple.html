@@ -5278,6 +5278,7 @@ async function downloadAnimZip() {
   btn.disabled = true; btn.innerHTML = '<span class="spinner spinner-dark"></span>作成中…';
   try {
     const zip = new JSZip();
+    const checks = [];
     let n = 0;
     for (const o of anims) {
       n++;
