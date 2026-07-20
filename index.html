@@ -1440,6 +1440,18 @@ function editZoomReset() {
   _edit.view = { z: 1, ox: 0, oy: 0 };
   _applyView();
 }
+// ▶ 一覧のアニメスタンプを最初から再生し直す
+// （APNGはループ回数がLINE規格で1〜4回に制限されるため、数秒で止まる。img要素を作り直すと頭から再生される）
+function replayAnim(i, ev) {
+  if (ev) { ev.stopPropagation(); ev.preventDefault(); }
+  const img = document.getElementById('stampImg' + i);
+  if (!img) return;
+  const src = img.getAttribute('src');
+  const fresh = img.cloneNode(false);
+  fresh.setAttribute('src', '');
+  img.parentNode.replaceChild(fresh, img);
+  requestAnimationFrame(() => fresh.setAttribute('src', src));
+}
 // ⛶ 修正モーダルを画面いっぱいに広げる／元に戻す（設定は次回も維持）
 function toggleEditWide(force) {
   const box = document.getElementById('editModalBox');
@@ -3232,7 +3244,7 @@ function renderStamps() {
     if (c.status === 'done' && c.image) {
       // アニメ設定済みならAPNGを表示（主要ブラウザはimgタグでそのまま動く）
       const src = (c.anim && c.anim.apng) ? c.anim.apng : c.image;
-      imgHtml = `<img src="data:image/png;base64,${src}" alt="${escAttr(c.text)}">`;
+      imgHtml = `<img id="stampImg${i}" src="data:image/png;base64,${src}" alt="${escAttr(c.text)}">`;
     } else if (c.status === 'gen') {
       imgHtml = `<div style="display:flex;flex-direction:column;align-items:center;gap:6px;"><span class="spinner spinner-dark"></span><span style="font-size:11px;color:#888">生成中…</span></div>`;
     } else if (c.status === 'err') {
@@ -3246,7 +3258,7 @@ function renderStamps() {
       c.status === 'err'  ? `<span class="stamp-status err">失敗</span>` :
                             `<span class="stamp-status">未生成</span>`;
     const customOpen = c.customOpen ? 'open' : '';
-    const animBadge = c.anim ? `<div style="font-size:10px;color:#7b3fbf;font-weight:700;text-align:center">🎞 ${escHtml((ANIM_EFFECTS[c.anim.effect] || {}).label || c.anim.label || 'アニメ')}（動くスタンプ）</div>` : '';
+    const animBadge = c.anim ? `<div style="font-size:10px;color:#7b3fbf;font-weight:700;text-align:center;display:flex;align-items:center;justify-content:center;gap:6px">🎞 ${escHtml((ANIM_EFFECTS[c.anim.effect] || {}).label || c.anim.label || 'アニメ')}（動くスタンプ）<button onclick="replayAnim(${i},event)" title="もう一度アニメを再生します（LINEでは1〜4回で止まる仕様です）" style="border:1px solid #d5c3ee;background:#f6f0ff;color:#7b3fbf;border-radius:12px;padding:1px 8px;font-size:10px;font-weight:700;cursor:pointer">▶ 再生</button></div>` : '';
     const styleOpts = Object.keys(STYLE_OPTIONS).map(s => `<option value="${escAttr(s)}" ${c.customStyle === s ? 'selected' : ''}>${escHtml(s)}</option>`).join('');
     const styleBadge = c.customStyle ? `<div style="font-size:10px;color:#06c755;text-align:center;margin-top:2px">🎨 ${escHtml(c.customStyle)}</div>` : '';
     const refIndicator = c.refImage
