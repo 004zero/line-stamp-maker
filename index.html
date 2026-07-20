@@ -3707,6 +3707,90 @@ async function openAlphaCheck() {
             : `✅ ${targets.length}枚すべて透過漏れなし`;
 }
 
+/* ===== 生成したAPNG/PNGがLINE規格を満たすか検査する ===== */
+function b64ToU8(b64) { const s = atob(b64); const u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return u; }
+function inspectForLine(u8, expW, expH, role) {
+  const dv = new DataView(u8.buffer, u8.byteOffset, u8.length);
+  let p = 8, ac = null, fcs = [], ihdr = null, types = [];
+  const sigOK = u8[0] === 137 && u8[1] === 80 && u8[2] === 78 && u8[3] === 71;
+  while (p + 12 <= u8.length) {
+    const len = dv.getUint32(p);
+    const ty = String.fromCharCode(u8[p + 4], u8[p + 5], u8[p + 6], u8[p + 7]);
+    types.push(ty);
+    if (ty === 'IHDR') ihdr = { w: dv.getUint32(p + 8), h: dv.getUint32(p + 12), depth: u8[p + 16], color: u8[p + 17], inter: u8[p + 20] };
+    if (ty === 'acTL') ac = { frames: dv.getUint32(p + 8), plays: dv.getUint32(p + 12) };
+    if (ty === 'fcTL') fcs.push({ w: dv.getUint32(p + 12), h: dv.getUint32(p + 16), x: dv.getUint32(p + 20), y: dv.getUint32(p + 24), dn: dv.getUint16(p + 28), dd: dv.getUint16(p + 30) });
+    p += 12 + len;
+    if (ty === 'IEND') break;
+  }
+  const dur = fcs.reduce((a, c) => a + (c.dn / (c.dd || 1000)) * 1000, 0);
+  const issues = [];
+  const need = (cond, msg) => { if (!cond) issues.push(msg); };
+  need(sigOK, 'PNGシグネチャが不正');
+  if (ihdr) {
+    need(ihdr.w === expW && ihdr.h === expH, `サイズ ${ihdr.w}×${ihdr.h}（規定 ${expW}×${expH}）`);
+    need(ihdr.color === 6, `カラー形式 type${ihdr.color}（RGBA=6 が必要）`);
+    need(ihdr.depth === 8, `ビット深度 ${ihdr.depth}（8 が必要）`);
+    need(ihdr.inter === 0, 'インターレースが有効（無効にする必要）');
+  } else issues.push('IHDRが無い');
+  if (role === 'tab') {
+    need(!ac, 'タブ画像がアニメになっている（静止画である必要）');
+  } else {
+    need(!!ac, 'アニメーション情報(acTL)が無い＝静止画になっている');
+    if (ac) {
+      need(ac.frames >= 5 && ac.frames <= 20, `フレーム数 ${ac.frames}（規定 5〜20）`);
+      need(ac.plays >= 1 && ac.plays <= 4, `ループ ${ac.plays}回（規定 1〜4回）`);
+      need(dur >= 1000 && dur <= 4000, `再生時間 ${(dur / 1000).toFixed(2)}秒（規定 1〜4秒）`);
+      need(dur / 1000 * ac.plays <= 4.01, `合計再生 ${(dur / 1000 * ac.plays).toFixed(2)}秒（4秒以内）`);
+      need(fcs.length === ac.frames, `fcTL数 ${fcs.length} と宣言フレーム数 ${ac.frames} が不一致`);
+      need(fcs.every(c => c.w === expW && c.h === expH && c.x === 0 && c.y === 0), 'フレームのサイズ/位置が不揃い（全フレーム同一サイズが必要）');
+    }
+  }
+  need(u8.length <= 1024 * 1024, `${Math.round(u8.length / 1024)}KB（1MB以下が必要）`);
+  return {
+    ok: issues.length === 0, issues,
+    w: ihdr ? ihdr.w : 0, h: ihdr ? ihdr.h : 0,
+    frames: ac ? ac.frames : 1, plays: ac ? ac.plays : 0,
+    sec: +(dur / 1000).toFixed(2), kb: Math.round(u8.length / 1024),
+    chunks: types.slice(0, 6).join(' ')
+  };
+}
+// 検査結果を画面に表示（ユーザーが状態を確認できるように）
+function showLineCheckReport(rows) {
+  const ng = rows.filter(r => !r.res.ok);
+  let ov = document.getElementById('lineCheckOverlay');
+  if (ov) ov.remove();
+  ov = document.createElement('div');
+  ov.id = 'lineCheckOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:10000;overflow:auto;padding:20px';
+  const body = rows.map(r => {
+    const c = r.res.ok ? '#7ee2a8' : '#ff8b9e';
+    const detail = r.res.ok
+      ? `${r.res.w}×${r.res.h}／${r.res.frames}コマ／${r.res.sec}秒×${r.res.plays}回／${r.res.kb}KB`
+      : r.res.issues.map(x => '⚠ ' + x).join('<br>');
+    return `<tr><td style="padding:6px 10px;border-bottom:1px solid #333">${r.name}</td>
+      <td style="padding:6px 10px;border-bottom:1px solid #333;color:${c}">${r.res.ok ? '✅ 適合' : '❌ 不適合'}</td>
+      <td style="padding:6px 10px;border-bottom:1px solid #333;color:${c};font-size:12px">${detail}</td></tr>`;
+  }).join('');
+  ov.innerHTML = `<div style="max-width:900px;margin:0 auto;color:#fff">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap">
+      <h2 style="margin:0;font-size:18px">🔬 LINE規格チェック結果</h2>
+      <span style="font-size:14px;color:${ng.length ? '#ff8b9e' : '#7ee2a8'}">${ng.length ? `❌ ${ng.length}件が規格に合っていません` : '✅ すべてLINEの規格に適合しています'}</span>
+      <button id="lcClose" style="margin-left:auto;padding:6px 14px;border-radius:6px;border:1px solid #666;background:#333;color:#fff;cursor:pointer">閉じる</button>
+    </div>
+    <table style="width:100%;border-collapse:collapse;background:#1c1c22;border-radius:8px;overflow:hidden">
+      <tr style="background:#2a2a33"><th style="text-align:left;padding:8px 10px">ファイル</th><th style="text-align:left;padding:8px 10px">判定</th><th style="text-align:left;padding:8px 10px">内容</th></tr>
+      ${body}
+    </table>
+    <div style="font-size:12px;opacity:.75;margin-top:10px;line-height:1.7">
+      ※「適合」でもLINEに弾かれる場合は、この画面の内容をそのままお伝えください。原因の特定に使えます。
+    </div>
+  </div>`;
+  document.body.appendChild(ov);
+  document.getElementById('lcClose').onclick = () => ov.remove();
+  ov.onclick = e => { if (e.target === ov) ov.remove(); };
+}
+
 // APNGの全フレーム（ArrayBuffer[]）に透過修正を適用
 function alphaFixFrames(frames, W, H, fgTh) {
   return frames.map(fb => {
@@ -4104,6 +4188,7 @@ async function downloadAnimOne() {
     a.download = `${String(i + 1).padStart(2, '0')}.png`;   // LINE規格の連番（01.png〜）
     a.click();
     URL.revokeObjectURL(url);
+    showLineCheckReport([{ name: a.download, res: inspectForLine(b64ToU8(r.b64), ANIM_W, ANIM_H, 'stamp') }]);
   } catch (e) {
     alert('APNGの作成に失敗しました：' + e.message);
   } finally {
@@ -4573,6 +4658,7 @@ async function downloadFramesApng() {
     a.download = `${String(num).padStart(2, '0')}.png`;
     a.click();
     URL.revokeObjectURL(url);
+    showLineCheckReport([{ name: a.download, res: inspectForLine(b64ToU8(r.b64), ANIM_W, ANIM_H, 'stamp') }]);
   } catch (e) {
     alert('APNGの作成に失敗しました：' + e.message);
   } finally {
@@ -4821,6 +4907,7 @@ async function downloadOverlayZip(kind) {
   if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner spinner-dark"></span>作成中…'; }
   try {
     const zip = new JSZip();
+    const checks = [];
     let n = 0;
     for (const o of anims) {
       n++;
@@ -4927,6 +5014,7 @@ async function downloadAnimZip() {
         o.c.anim.apng = apngB64; // 表示用・保存用も最新化
       } catch (e) { console.warn(`APNG再生成に失敗 #${n}（保存済みデータを使用）:`, e); }
       zip.file(`${String(n).padStart(2, '0')}.png`, apngB64, { base64: true });
+      checks.push({ name: `${String(n).padStart(2, '0')}.png`, res: inspectForLine(b64ToU8(apngB64), ANIM_W, ANIM_H, 'stamp') });
     }
     // main.png：メイン画像に選んだスタンプ（アニメ付き）から240×240のAPNGを作る
     const sel = document.getElementById('mainSrcSelect');
@@ -4935,9 +5023,11 @@ async function downloadAnimZip() {
     const mc = state.captions[mi];
     const main = await buildMainApng(mc);
     zip.file('main.png', main.b64, { base64: true });
+    checks.push({ name: 'main.png', res: inspectForLine(b64ToU8(main.b64), LINE_SIZE.mainW, LINE_SIZE.mainH, 'main') });
     // tab.png はLINE規格で静止画
     const tab = await sizeImage(b64src(mc.image), LINE_SIZE.tabW, LINE_SIZE.tabH, true);
     zip.file('tab.png', tab, { base64: true });
+    checks.push({ name: 'tab.png', res: inspectForLine(b64ToU8(tab), LINE_SIZE.tabW, LINE_SIZE.tabH, 'tab') });
     const blob = await zip.generateAsync({ type: 'blob' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -4945,6 +5035,7 @@ async function downloadAnimZip() {
     a.download = `line-anim-stamps_${safeName(state.theme)}_${new Date().toISOString().slice(0, 10)}.zip`;
     a.click();
     URL.revokeObjectURL(url);
+    showLineCheckReport(checks);   // 🔬 LINE規格チェック結果を表示
     save();
     renderStamps();
     let doneMsg = `✓ アニメーションスタンプ用ZIP（${anims.length}個分）を書き出しました。\n\n⚠ アップロード先に注意：\nLINE Creators Marketの新規登録で、スタンプタイプ【アニメーションスタンプ】を選んだアイテムにアップしてください。\n通常の（静止画）スタンプとして作ったアイテムには登録できず、全部Errorになります。タイプは後から変更できないため、間違えていた場合は新規登録からやり直してください。`;
