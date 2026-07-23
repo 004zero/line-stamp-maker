@@ -661,6 +661,24 @@
             <option value="1">ふつう（1秒 × 4ループ）</option>
             <option value="2">ゆっくり（2秒 × 2ループ）</option>
           </select>
+          <div style="border-top:1px dashed #ddd;margin-top:14px;padding-top:10px">
+            <label class="form-label">✨ AIでパラパラアニメを自動生成（APIキー使用・有料）</label>
+            <div style="font-size:11px;color:#888;margin-bottom:6px">この画像をもとに、AIが動きのコマを描いてパラパラアニメにします。<strong>AI生成1コマ＝画像生成API 1回分の料金</strong>がかかります。生成後にコマの確認・削除・並べ替えができます。</div>
+            <select id="aiParaMotion" class="form-select" onchange="document.getElementById('aiParaCustom').style.display = this.value === 'custom' ? '' : 'none'"></select>
+            <input type="text" id="aiParaCustom" class="form-input" placeholder="例：しっぽを大きく振る" style="display:none;margin-top:6px">
+            <div style="display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap">
+              <label class="form-label" style="margin:0;white-space:nowrap">コマ数</label>
+              <select id="aiParaCount" class="form-select" style="flex:1;min-width:150px">
+                <option value="2">2コマ（元画像＋AI 1枚）</option>
+                <option value="3" selected>3コマ（元画像＋AI 2枚）</option>
+                <option value="4">4コマ（元画像＋AI 3枚）</option>
+                <option value="5">5コマ（元画像＋AI 4枚）</option>
+                <option value="6">6コマ（元画像＋AI 5枚）</option>
+                <option value="8">8コマ（元画像＋AI 7枚）</option>
+              </select>
+              <button class="btn btn-primary" id="aiParaBtn" onclick="aiParaGenerate()">✨ 生成</button>
+            </div>
+          </div>
         </div>
       </div>
       <div class="modal-actions" style="flex-wrap:wrap">
@@ -4187,6 +4205,7 @@ async function openAnim(i) {
     ? `現在の動き：${(ANIM_EFFECTS[c.anim.effect] || {}).label || ''}（保存時に自動で300KB以下へ圧縮）`
     : '保存時に自動で300KB以下へ圧縮します';
   renderFxGrid();
+  _aiParaFillMotionSelect();
   document.getElementById('animModal').classList.add('open');
   _animLoop();
 }
@@ -4296,6 +4315,184 @@ function removeAnim() {
   state.captions[_anim.i].anim = null;
   closeAnim();
   renderStamps();
+}
+
+// ===== ✨ AIでパラパラアニメを自動生成 =====
+// 元画像を /v1/images/edits に渡し、動きの各段階だけを変えたコマをAIに描かせる。
+// 生成コマは既存のパラパラモーダル（framesModal）に流し込み、確認・削除・並べ替えしてから確定する。
+const AI_PARA_MOTIONS = {
+  blink:    { label: '😉 まばたき', phases: [
+    'the eyes are half closed, everything else identical',
+    'the eyes are fully closed, drawn as gentle downward-curved lines',
+  ] },
+  wave:     { label: '👋 手を振る', phases: [
+    'one arm is raised beside the face with an open palm',
+    'the raised arm is tilted outward, mid-wave',
+  ] },
+  jump:     { label: '🐇 ジャンプ', phases: [
+    'the character crouches slightly with knees bent, ready to jump',
+    'the character is in mid-air, feet off the ground, arms raised happily',
+    'the character has just landed with knees slightly bent, smiling',
+  ] },
+  purupuru: { label: '🫨 ぷるぷる', phases: [
+    'the whole body leans slightly to the left',
+    'the whole body leans slightly to the right',
+  ] },
+  tilt:     { label: '🤔 首をかしげる', phases: [
+    'the head is tilted slightly to one side with a curious expression',
+    'the head is tilted clearly to the side, eyes wide and curious',
+  ] },
+  joy:      { label: '🎉 大よろこび', phases: [
+    'the arms are raised high in celebration with a big smile',
+    'the arms are raised high, mouth wide open with joy, eyes sparkling',
+  ] },
+  custom:   { label: '✏️ 自由に入力…', phases: null },
+};
+
+function _aiParaFillMotionSelect() {
+  const sel = document.getElementById('aiParaMotion');
+  if (!sel || sel.options.length) return;
+  sel.innerHTML = Object.entries(AI_PARA_MOTIONS)
+    .map(([k, m]) => `<option value="${k}">${m.label}</option>`).join('');
+}
+
+// 元画像と同一のキャラ・画風のまま、指定の動きの段階だけを変えるプロンプト
+function _aiParaPrompt(phase) {
+  return 'This image is one frame of a LINE sticker flip-book animation. ' +
+    'Redraw the EXACT same character: same art style, same line weight, same colors, same proportions, ' +
+    'same size and same position on the canvas. Keep any text or lettering exactly as it is. ' +
+    'Change ONLY this: ' + phase + '. ' +
+    'Flat sticker illustration, transparent background, no new objects, no background scenery.';
+}
+
+// 1コマ分をAI生成（images/edits）。成功で base64 を返す
+async function _aiParaGenFrame(baseBlob, prompt) {
+  const fd = new FormData();
+  fd.append('model', 'gpt-image-1');
+  fd.append('prompt', prompt);
+  fd.append('n', '1');
+  fd.append('size', '1024x1024');
+  fd.append('quality', 'medium');
+  fd.append('background', 'transparent');
+  fd.append('output_format', 'png');
+  fd.append('image', baseBlob, 'base.png');
+  const res = await fetch('https://api.openai.com/v1/images/edits', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${state.apiKey}` },
+    body: fd,
+  });
+  const raw = await res.text();
+  if (!res.ok) {
+    let msg = '';
+    try { const j = JSON.parse(raw); msg = j.error?.message || j.error?.code || raw; } catch (_) { msg = raw; }
+    throw new Error(`HTTP ${res.status}: ${String(msg).slice(0, 280)}`);
+  }
+  const item = (JSON.parse(raw).data || [])[0];
+  if (item && item.b64_json) return item.b64_json;
+  if (item && item.url) {
+    const blob = await (await fetch(item.url)).blob();
+    return await new Promise((ok, ng) => {
+      const r = new FileReader();
+      r.onloadend = () => ok(r.result.split(',')[1]);
+      r.onerror = ng;
+      r.readAsDataURL(blob);
+    });
+  }
+  throw new Error('画像データ(b64_json/url)が見つかりません');
+}
+
+async function aiParaGenerate() {
+  if (!_anim) return;
+  const i = _anim.i;
+  const c = state.captions[i];
+  if (!c || !c.image) return;
+  if (state.apiEnabled === false) {
+    alert('🤖AI生成(API)がオフのため生成できません。右上の「⚙設定」でスイッチをONにしてください。');
+    return;
+  }
+  if (!state.apiKey) { alert('OpenAI APIキーを設定してください'); openSettings(); return; }
+
+  const key = document.getElementById('aiParaMotion').value;
+  const motion = AI_PARA_MOTIONS[key];
+  if (!motion) return;
+  const total = parseInt(document.getElementById('aiParaCount').value, 10) || 3;
+  const G = total - 1; // AI生成するコマ数（コマ1は元画像）
+
+  // 各コマの「動きの段階」テキストを作る
+  let phases = [];
+  if (key === 'custom') {
+    const text = (document.getElementById('aiParaCustom').value || '').trim();
+    if (!text) { alert('どんな動きにするか入力してください（例：しっぽを大きく振る）'); return; }
+    for (let g = 0; g < G; g++) {
+      phases.push(`the character is doing "${text}" — show stage ${g + 1} of ${G} of that motion`);
+    }
+  } else {
+    const src = motion.phases;
+    for (let g = 0; g < G; g++) {
+      const idx = G === 1 ? src.length - 1 : Math.round(g / (G - 1) * (src.length - 1));
+      phases.push(src[idx]);
+    }
+  }
+
+  if (!confirm(`AIで ${G}コマ生成します（画像生成API ${G}回分の料金がかかります）。\n元画像と合わせて合計 ${total}コマのパラパラアニメになります。\nよろしいですか？`)) return;
+
+  const btn = document.getElementById('aiParaBtn');
+  btn.disabled = true;
+  let doneCnt = 0;
+  btn.innerHTML = `<span class="spinner"></span>生成中… 0/${G}`;
+  const baseBlob = b64ToBlob(c.image);
+  const results = new Array(G).fill(null);
+  const errors = [];
+  let cursor = 0;
+  const workers = [];
+  for (let w = 0; w < Math.min(2, G); w++) {
+    workers.push((async () => {
+      while (cursor < G) {
+        const g = cursor++;
+        try {
+          results[g] = await _aiParaGenFrame(baseBlob, _aiParaPrompt(phases[g]));
+        } catch (e) {
+          console.error(`[AIパラパラ コマ${g + 2}] failed:`, e);
+          errors.push(e.message || String(e));
+        }
+        doneCnt++;
+        btn.innerHTML = `<span class="spinner"></span>生成中… ${doneCnt}/${G}`;
+      }
+    })());
+  }
+  await Promise.all(workers);
+  btn.disabled = false;
+  btn.innerHTML = '✨ 生成';
+
+  const okB64s = results.filter(Boolean);
+  if (!okB64s.length) {
+    alert('AIコマの生成にすべて失敗しました。\n\n最初のエラー：\n' + (errors[0] || '不明') +
+      '\n\n【よくある原因】\n・OpenAIの本人確認(Organization Verification)未完了\n・課金設定/クレジット残高不足');
+    return;
+  }
+
+  // 元画像＋生成コマをパラパラモーダルへ（targetIndex付き＝このスタンプの動きとして保存）
+  try {
+    const list = [];
+    const origDu = b64src(c.image);
+    list.push({ dataUrl: origDu, img: await loadImage(origDu) });
+    for (const b of okB64s) {
+      const du = b64src(b);
+      list.push({ dataUrl: du, img: await loadImage(du) });
+    }
+    closeAnim();
+    _frames = { list, seconds: 1, raf: 0, t0: performance.now(), targetIndex: i };
+    document.getElementById('framesSeconds').value = '1';
+    renderFramesStrip();
+    document.getElementById('framesModal').classList.add('open');
+    _framesLoop();
+    let msg = `✨ AIで ${okB64s.length}コマ生成しました（元画像と合わせて ${list.length}コマ）。`;
+    if (errors.length) msg += `\n⚠ ${errors.length}コマは生成に失敗したため除いています。`;
+    msg += '\n\nプレビューを確認して、ガタつくコマは ✕ で削除、「📐 大きさを整える」で位置ズレを補正できます。\n「✔ この動きにする」でこのスタンプのアニメとして保存されます。';
+    alert(msg);
+  } catch (e) {
+    alert('生成コマの読み込みに失敗しました：' + e.message);
+  }
 }
 
 // ===== ⑤ 手持ち画像 → 動きを付ける（スタンプ一覧に追加） =====
@@ -4694,6 +4891,9 @@ function renderFramesStrip() {
   const seq = _expandFrameList(_frames.list);
   const info = document.getElementById('framesInfo');
   if (info) info.textContent = `${_frames.list.length}コマ${seq.length !== _frames.list.length ? `（繰り返して${seq.length}コマで書き出し）` : ''}・${_frames.seconds}秒 × ${animPlaysFor(_frames.seconds)}ループ`;
+  // ✨AIパラパラ（既存スタンプへの保存）のときはボタン表記を切り替える
+  const ab = document.getElementById('framesApplyBtn');
+  if (ab && !ab.disabled) ab.innerHTML = (_frames.targetIndex != null) ? '✔ この動きにする' : '✔ スタンプ一覧に追加';
 }
 
 // LINE規格の最低5コマを満たすよう、足りない場合はシーケンスを繰り返す（上限20コマ）
@@ -4759,14 +4959,20 @@ async function applyFrames() {
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>作成中…';
   try {
     const r = await buildFramesApng(_frames.list, _frames.seconds);
-    state.captions.push({
-      text: `パラパラ${state.captions.length + 1}`,
-      emotion: '', composition: '', customPrompt: '', customStyle: '',
-      refImage: null,
-      image: _frames.list[0].dataUrl.split(',')[1], // 静止画（tab等用）は1コマ目
-      anim: { custom: true, label: 'パラパラ', seconds: _frames.seconds, apng: r.b64, frames: _frames.list.map(f => f.dataUrl) },
-      status: 'done', error: null,
-    });
+    const ti = _frames.targetIndex;
+    if (ti != null && state.captions[ti]) {
+      // ✨AIパラパラ：既存スタンプの「動き」として保存（静止画はそのまま）
+      state.captions[ti].anim = { custom: true, label: 'AIパラパラ', seconds: _frames.seconds, apng: r.b64, frames: _frames.list.map(f => f.dataUrl) };
+    } else {
+      state.captions.push({
+        text: `パラパラ${state.captions.length + 1}`,
+        emotion: '', composition: '', customPrompt: '', customStyle: '',
+        refImage: null,
+        image: _frames.list[0].dataUrl.split(',')[1], // 静止画（tab等用）は1コマ目
+        anim: { custom: true, label: 'パラパラ', seconds: _frames.seconds, apng: r.b64, frames: _frames.list.map(f => f.dataUrl) },
+        status: 'done', error: null,
+      });
+    }
     closeFrames();
     save();
     renderCaptions();
@@ -4777,7 +4983,8 @@ async function applyFrames() {
   } catch (e) {
     alert('パラパラアニメの作成に失敗しました：' + e.message);
   } finally {
-    btn.disabled = false; btn.innerHTML = '✔ スタンプ一覧に追加';
+    btn.disabled = false;
+    btn.innerHTML = (_frames && _frames.targetIndex != null) ? '✔ この動きにする' : '✔ スタンプ一覧に追加';
   }
 }
 
