@@ -160,6 +160,9 @@
     .fx-pill { padding: 9px 6px; border: 1.5px solid #ddd; border-radius: 7px; text-align: center; cursor: pointer; font-size: 12px; font-weight: 600; background: white; user-select: none; }
     .fx-pill:hover { border-color: #06c755; }
     .fx-pill.active { background: #06c755; border-color: #06c755; color: white; }
+    .fx-tag { display: block; font-size: 9px; font-weight: 600; margin-top: 3px; color: #06c755; }
+    .fx-tag.popup { color: #f39c12; }
+    .fx-pill.active .fx-tag { color: rgba(255,255,255,.92); }
     #animCanvas { background: repeating-conic-gradient(#f0f0f0 0% 25%, #fff 0% 50%) 50% / 16px 16px; border: 1px solid #ddd; border-radius: 8px; max-width: 100%; height: auto; }
 
     /* ============ Mobile (≤768px) ============ */
@@ -681,6 +684,7 @@
         </div>
         <div style="flex:1;min-width:220px">
           <label class="form-label">動きを選ぶ</label>
+          <div style="font-size:10px;color:#888;margin-bottom:5px;line-height:1.6"><span style="color:#06c755;font-weight:600">🎞 アニメスタンプOK</span>＝「アニメーションスタンプ」タイプで申請可 ／ <span style="color:#f39c12;font-weight:600">🎉 ポップアップ申請用</span>＝画面いっぱいに拡大するため「ポップアップスタンプ」タイプで申請してください（通常のアニメスタンプだと見切れで審査落ちしやすい）</div>
           <div class="fx-grid" id="fxGrid"></div>
           <label class="form-label" style="margin-top:12px">速さ（1回の再生時間）</label>
           <select id="animSeconds" class="form-select" onchange="setAnimSeconds(this.value)">
@@ -3794,7 +3798,7 @@ const ANIM_EFFECTS = {
     if (t > 0.15 && t < 0.65) { const u = (t - 0.15) / 0.5; rot = 360 * _ease(u); y = -Math.sin(u * Math.PI) * 0.05; }
     return { rot, y };
   } },
-  don: { label: 'ドーン！と登場', emoji: '💥', fn: t => {
+  don: { label: 'ドーン！と登場', emoji: '💥', type: 'popup', fn: t => {
     // 小さい状態から一気に画面いっぱいまで拡大→少し戻って大きいままドヤ顔
     let s;
     if (t < 0.22) s = 0.15 + (t / 0.22) * 1.75;
@@ -3802,7 +3806,7 @@ const ANIM_EFFECTS = {
     else s = 1.35 + 0.05 * Math.sin((t - 0.34) * Math.PI * 3);
     return { scale: Math.max(0.05, s) };
   } },
-  doap: { label: 'ドアップ', emoji: '😳', fn: t => {
+  doap: { label: 'ドアップ', emoji: '😳', type: 'popup', fn: t => {
     // 顔のあたりに画面いっぱいまでズームして戻る
     const u = Math.sin(t * Math.PI);
     return { scale: 1 + 1.1 * u, y: 0.16 * u };
@@ -4340,9 +4344,12 @@ function closeAnim() {
 function renderFxGrid() {
   const grid = document.getElementById('fxGrid');
   if (!grid || !_anim) return;
-  grid.innerHTML = Object.entries(ANIM_EFFECTS).map(([k, e]) =>
-    `<div class="fx-pill ${k === _anim.effect ? 'active' : ''}" onclick="setAnimFx('${k}')">${e.emoji} ${e.label}</div>`
-  ).join('');
+  grid.innerHTML = Object.entries(ANIM_EFFECTS).map(([k, e]) => {
+    const tag = e.type === 'popup'
+      ? '<span class="fx-tag popup">🎉 ポップアップ申請用</span>'
+      : '<span class="fx-tag">🎞 アニメスタンプOK</span>';
+    return `<div class="fx-pill ${k === _anim.effect ? 'active' : ''}" onclick="setAnimFx('${k}')">${e.emoji} ${e.label}${tag}</div>`;
+  }).join('');
 }
 function setAnimFx(k) {
   if (!_anim || !ANIM_EFFECTS[k]) return;
