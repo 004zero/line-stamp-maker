@@ -434,7 +434,7 @@
           <strong>⚠ 大事：ZIPの種類と、LINEで登録した「スタンプタイプ」は一致が必要です</strong>
           LINE Creators Marketの<strong>新規登録のとき最初に選ぶタイプ</strong>に合わせて使い分けてください（タイプは<strong>後から変更できません</strong>。違う組み合わせだと全部Errorになります）。<br>
           📦 ZIPでまとめてDL → <strong>スタンプ</strong>（静止画）タイプ用。<strong>カスタム／メッセージスタンプ</strong>にもこれを使います（①の「🅰 文字を入れない」をONにして生成した画像がおすすめ）<br>
-          🐘 BIGスタンプZIP → <strong>BIGスタンプ</strong>タイプ用（大きく表示・静止画396×660）<br>
+          🐘 BIGスタンプZIP → <strong>BIGスタンプ</strong>タイプ用（大きく表示・余白を切り詰めて書き出し。縦長の絵ほど大きく見える）<br>
           🎞 アニメスタンプZIP → <strong>アニメーションスタンプ</strong>タイプ用<br>
           🎉 ポップアップ用ZIP → <strong>ポップアップスタンプ</strong>タイプ用（画面全体に飛び出す）<br>
           💫 エフェクト用ZIP → <strong>エフェクトスタンプ</strong>タイプ用（トーク背景にアニメ）
@@ -5379,6 +5379,25 @@ async function downloadOverlayZip(kind) {
   }
 }
 
+// BIGスタンプ用：透明余白を切り落とし、絵がキャンバスいっぱいになるように書き出す。
+// LINE規格：スタンプ画像 横80〜396px・縦524〜660px（静止PNG・偶数px）・余白不要（LINE側で自動追加）。
+// LINEは透明部分も含めた画像全体を表示枠に収めるため、透明余白が大きいほど絵が小さく
+// 表示されてしまう（→「BIGなのに大きく見えない」の原因）。縦は最低条件の524pxに抑える。
+async function sizeBigImage(src) {
+  const img = await loadImage(src);
+  const o = charInfo(img); // 不透明部分のバウンディングボックス
+  const s = Math.min(396 / o.bw, 524 / o.bh);
+  const dw = Math.max(2, Math.round(o.bw * s)), dh = Math.max(2, Math.round(o.bh * s));
+  const even = v => v + (v % 2);
+  const cw = Math.min(396, Math.max(80, even(dw)));
+  const ch = 524;
+  const cv = document.createElement('canvas'); cv.width = cw; cv.height = ch;
+  const ctx = cv.getContext('2d');
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(o.img, o.bx, o.by, o.bw, o.bh, Math.round((cw - dw) / 2), Math.round((ch - dh) / 2), dw, dh);
+  return cv.toDataURL('image/png').split(',')[1];
+}
+
 // BIGスタンプ（大きく表示される静止画）用ZIP
 // LINE規格：スタンプ画像 横80〜396px・縦524〜660px（静止PNG・偶数px）＋ main240×240 ＋ tab96×74
 async function downloadBigZip() {
@@ -5392,8 +5411,8 @@ async function downloadBigZip() {
     for (const c of state.captions) {
       if (!c.image) continue;
       n++;
-      // 396×660の透過キャンバスに中央配置（縦の最低524pxを確実に満たす）
-      const b64 = await sizeImage(b64src(c.image), 396, 660, true);
+      // 透明余白を切り落として絵を最大サイズで配置（余白が大きいと小さく表示されるため）
+      const b64 = await sizeBigImage(b64src(c.image));
       zip.file(`${String(n).padStart(2, '0')}.png`, b64, { base64: true });
     }
     const sel = document.getElementById('mainSrcSelect');
@@ -5409,7 +5428,7 @@ async function downloadBigZip() {
     a.download = `line-big-stamps_${safeName(state.theme)}_${new Date().toISOString().slice(0, 10)}.zip`;
     a.click();
     URL.revokeObjectURL(url);
-    let msg = `✓ BIGスタンプ用ZIP（${n}個分・396×660px）を書き出しました。\n\n【申請方法】LINE Creators Marketの新規登録でスタンプタイプ【BIGスタンプ】を選んだアイテムにアップしてください（タイプは後から変更できません）。`;
+    let msg = `✓ BIGスタンプ用ZIP（${n}個分）を書き出しました。\n（絵のまわりの透明余白を切り詰めて、最大サイズで表示されるように配置しています）\n\n【申請方法】LINE Creators Marketの新規登録でスタンプタイプ【BIGスタンプ】を選んだアイテムにアップしてください（タイプは後から変更できません）。\n\n💡 横長・正方形の絵は横396pxが上限のため、BIGらしさは控えめです。全身立ち姿など「縦長の絵」ほど大きく表示されます。`;
     if (![8, 16, 24, 32, 40].includes(n)) msg += `\n\n⚠ 現在 ${n}個 です。BIGスタンプは【8/16/24/32/40個】での申請が必要です。`;
     alert(msg);
   } catch (e) {
