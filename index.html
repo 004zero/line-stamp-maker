@@ -504,9 +504,15 @@
         <label class="form-label">OpenAI APIキー</label>
         <input type="password" class="form-input" id="apiKeyInput" placeholder="sk-...">
       </div>
+      <div class="form-group">
+        <label class="form-label">Gemini APIキー（ナノバナナ用・任意）</label>
+        <input type="password" class="form-input" id="geminiKeyInput" placeholder="AIza...">
+        <div style="font-size:11px;color:#888;margin-top:4px">「✨AIでパラパラ自動生成」でナノバナナ（Google）を使うときだけ必要です。Google AI Studio（aistudio.google.com）→「Get API key」で発行できます。</div>
+      </div>
       <div class="note">
         ・キーはこのブラウザのlocalStorageにのみ保存され、外部に送信されません。<br>
         ・<strong>gpt-4o-mini</strong>（セリフ生成）と <strong>gpt-image-1</strong>（画像生成・背景透過対応）を使用します。<br>
+        ・「✨AIでパラパラ自動生成」では OpenAI イメージ1/1.5/2 と Google ナノバナナ（要Geminiキー）を選べます。<br>
         ・gpt-image-1 (medium) は約 $0.04/枚。8個で約 $0.32、40個で約 $1.6 です。<br>
         ・<strong>初回はOpenAIで Organization Verification（本人確認）が必須</strong>です。失敗する場合は platform.openai.com → Settings → Organization → General で確認してください。
       </div>
@@ -668,6 +674,15 @@
           <div style="border-top:1px dashed #ddd;margin-top:14px;padding-top:10px">
             <label class="form-label">✨ AIでパラパラアニメを自動生成（APIキー使用・有料）</label>
             <div style="font-size:11px;color:#888;margin-bottom:6px">この画像をもとに、AIが動きのコマを描いてパラパラアニメにします。<strong>AI生成1コマ＝画像生成API 1回分の料金</strong>がかかります。生成後にコマの確認・削除・並べ替えができます。</div>
+            <label class="form-label" style="font-size:11px">使うAI（絵が変わってしまうときは別のAIを試してください）</label>
+            <select id="aiParaModel" class="form-select" style="margin-bottom:6px">
+              <option value="gpt-image-1">OpenAI イメージ1（今まで通り）</option>
+              <option value="gpt-image-1.5">OpenAI イメージ1.5（そっくり度UP・おすすめ）</option>
+              <option value="gpt-image-2">OpenAI イメージ2（最新。背景は自動で透過処理）</option>
+              <option value="nb2">ナノバナナ2（Google。キャラを保つのが得意）</option>
+              <option value="nbpro">ナノバナナPro（Google。高品質）</option>
+              <option value="nb1">ナノバナナ 旧版（Google）</option>
+            </select>
             <select id="aiParaMotion" class="form-select" onchange="document.getElementById('aiParaCustom').style.display = this.value === 'custom' ? '' : 'none'"></select>
             <input type="text" id="aiParaCustom" class="form-input" placeholder="例：しっぽを大きく振る" style="display:none;margin-top:6px">
             <div style="display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap">
@@ -736,6 +751,9 @@
 // ========== State ==========
 const state = {
   apiKey: '',
+  geminiKey: '',
+  aiParaModel: 'gpt-image-1', // ✨AIパラパラで使う画像モデル
+
   theme: '',
   character: '',
   style: 'シンプル線画・パステル',
@@ -761,6 +779,8 @@ function load() {
   try {
     const d = JSON.parse(localStorage.getItem('lineStampMaker') || '{}');
     state.apiKey    = d.apiKey    || '';
+    state.geminiKey = d.geminiKey || '';
+    state.aiParaModel = d.aiParaModel || 'gpt-image-1';
     state.theme     = d.theme     || '';
     state.character = d.character || '';
     state.style     = d.style     || state.style;
@@ -803,6 +823,8 @@ function save() {
   try {
     localStorage.setItem('lineStampMaker', JSON.stringify({
       apiKey: state.apiKey,
+      geminiKey: state.geminiKey,
+      aiParaModel: state.aiParaModel,
       theme: state.theme,
       character: state.character,
       style: state.style,
@@ -873,6 +895,7 @@ function refreshApiStatus() {
 
 function openSettings() {
   document.getElementById('apiKeyInput').value = state.apiKey;
+  document.getElementById('geminiKeyInput').value = state.geminiKey || '';
   document.getElementById('settingsModal').classList.add('open');
 }
 function closeSettings() {
@@ -880,6 +903,7 @@ function closeSettings() {
 }
 function saveSettings() {
   state.apiKey = document.getElementById('apiKeyInput').value.trim();
+  state.geminiKey = document.getElementById('geminiKeyInput').value.trim();
   save();
   refreshApiStatus();
   closeSettings();
@@ -4210,6 +4234,8 @@ async function openAnim(i) {
     : '保存時に自動で300KB以下へ圧縮します';
   renderFxGrid();
   _aiParaFillMotionSelect();
+  const pm = document.getElementById('aiParaModel');
+  if (pm) pm.value = AI_PARA_MODELS[state.aiParaModel] ? state.aiParaModel : 'gpt-image-1';
   document.getElementById('animModal').classList.add('open');
   _animLoop();
 }
@@ -4363,49 +4389,88 @@ function _aiParaFillMotionSelect() {
     .map(([k, m]) => `<option value="${k}">${m.label}</option>`).join('');
 }
 
+// ✨AIパラパラで選べる画像モデル。
+// transparent=false のモデルは透過PNGを出せないため、白背景で生成→既存のremoveBgで自動透過する
+const AI_PARA_MODELS = {
+  'gpt-image-1':   { provider: 'openai', model: 'gpt-image-1',   label: 'OpenAI イメージ1',   transparent: true,  fidelity: false },
+  'gpt-image-1.5': { provider: 'openai', model: 'gpt-image-1.5', label: 'OpenAI イメージ1.5', transparent: true,  fidelity: true },
+  'gpt-image-2':   { provider: 'openai', model: 'gpt-image-2',   label: 'OpenAI イメージ2',   transparent: false, fidelity: true },
+  'nb2':   { provider: 'gemini', model: 'gemini-3.1-flash-image', label: 'ナノバナナ2',    transparent: false },
+  'nbpro': { provider: 'gemini', model: 'gemini-3-pro-image',     label: 'ナノバナナPro',  transparent: false },
+  'nb1':   { provider: 'gemini', model: 'gemini-2.5-flash-image', label: 'ナノバナナ 旧版', transparent: false },
+};
+
 // 元画像と同一のキャラ・画風のまま、指定の動きの段階だけを変えるプロンプト
-function _aiParaPrompt(phase) {
+function _aiParaPrompt(phase, transparent) {
   return 'This image is one frame of a LINE sticker flip-book animation. ' +
     'Redraw the EXACT same character: same art style, same line weight, same colors, same proportions, ' +
     'same size and same position on the canvas. Keep any text or lettering exactly as it is. ' +
     'Change ONLY this: ' + phase + '. ' +
-    'Flat sticker illustration, transparent background, no new objects, no background scenery.';
+    'Flat sticker illustration, no new objects, no background scenery, ' +
+    (transparent ? 'transparent background.' : 'plain pure solid white background (no shadows, no gradients on the background).');
 }
 
-// 1コマ分をAI生成（images/edits）。成功で base64 を返す
-async function _aiParaGenFrame(baseBlob, prompt) {
-  const fd = new FormData();
-  fd.append('model', 'gpt-image-1');
-  fd.append('prompt', prompt);
-  fd.append('n', '1');
-  fd.append('size', '1024x1024');
-  fd.append('quality', 'medium');
-  fd.append('background', 'transparent');
-  fd.append('output_format', 'png');
-  fd.append('image', baseBlob, 'base.png');
-  const res = await fetch('https://api.openai.com/v1/images/edits', {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${state.apiKey}` },
-    body: fd,
-  });
-  const raw = await res.text();
-  if (!res.ok) {
-    let msg = '';
-    try { const j = JSON.parse(raw); msg = j.error?.message || j.error?.code || raw; } catch (_) { msg = raw; }
-    throw new Error(`HTTP ${res.status}: ${String(msg).slice(0, 280)}`);
-  }
-  const item = (JSON.parse(raw).data || [])[0];
-  if (item && item.b64_json) return item.b64_json;
-  if (item && item.url) {
-    const blob = await (await fetch(item.url)).blob();
-    return await new Promise((ok, ng) => {
-      const r = new FileReader();
-      r.onloadend = () => ok(r.result.split(',')[1]);
-      r.onerror = ng;
-      r.readAsDataURL(blob);
+// 1コマ分をAI生成。成功で base64(PNG) を返す。透過非対応モデルは背景を自動で透過処理する
+async function _aiParaGenFrame(baseB64, prompt, mk) {
+  let b64;
+  if (mk.provider === 'gemini') {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${mk.model}:generateContent`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': state.geminiKey },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: 'image/png', data: baseB64 } }] }],
+      }),
     });
+    const raw = await res.text();
+    if (!res.ok) {
+      let msg = '';
+      try { const j = JSON.parse(raw); msg = j.error?.message || j.error?.status || raw; } catch (_) { msg = raw; }
+      throw new Error(`HTTP ${res.status}: ${String(msg).slice(0, 280)}`);
+    }
+    const parts = (JSON.parse(raw).candidates?.[0]?.content?.parts) || [];
+    const imgPart = parts.find(p => p.inlineData && p.inlineData.data) || parts.find(p => p.inline_data && p.inline_data.data);
+    if (!imgPart) throw new Error('レスポンスに画像が含まれていません（プロンプトがブロックされた可能性があります）');
+    b64 = (imgPart.inlineData || imgPart.inline_data).data;
+  } else {
+    const fd = new FormData();
+    fd.append('model', mk.model);
+    fd.append('prompt', prompt);
+    fd.append('n', '1');
+    fd.append('size', '1024x1024');
+    fd.append('quality', 'medium');
+    if (mk.transparent) fd.append('background', 'transparent');
+    if (mk.fidelity) fd.append('input_fidelity', 'high');
+    fd.append('output_format', 'png');
+    fd.append('image', b64ToBlob(baseB64), 'base.png');
+    const res = await fetch('https://api.openai.com/v1/images/edits', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${state.apiKey}` },
+      body: fd,
+    });
+    const raw = await res.text();
+    if (!res.ok) {
+      let msg = '';
+      try { const j = JSON.parse(raw); msg = j.error?.message || j.error?.code || raw; } catch (_) { msg = raw; }
+      throw new Error(`HTTP ${res.status}: ${String(msg).slice(0, 280)}`);
+    }
+    const item = (JSON.parse(raw).data || [])[0];
+    if (item && item.b64_json) b64 = item.b64_json;
+    else if (item && item.url) {
+      const blob = await (await fetch(item.url)).blob();
+      b64 = await new Promise((ok, ng) => {
+        const r = new FileReader();
+        r.onloadend = () => ok(r.result.split(',')[1]);
+        r.onerror = ng;
+        r.readAsDataURL(blob);
+      });
+    } else throw new Error('画像データ(b64_json/url)が見つかりません');
   }
-  throw new Error('画像データ(b64_json/url)が見つかりません');
+  // 透過を出せないモデル → 白背景を自動で透明化（JPEGで返る場合もPNGへ変換される）
+  if (!mk.transparent) {
+    const du = await removeBg('data:image/png;base64,' + b64, state.bgRemoveMode);
+    b64 = du.split(',')[1];
+  }
+  return b64;
 }
 
 async function aiParaGenerate() {
@@ -4417,7 +4482,14 @@ async function aiParaGenerate() {
     alert('🤖AI生成(API)がオフのため生成できません。右上の「⚙設定」でスイッチをONにしてください。');
     return;
   }
-  if (!state.apiKey) { alert('OpenAI APIキーを設定してください'); openSettings(); return; }
+  const mkKey = document.getElementById('aiParaModel').value;
+  const mk = AI_PARA_MODELS[mkKey] || AI_PARA_MODELS['gpt-image-1'];
+  if (mk.provider === 'gemini') {
+    if (!state.geminiKey) { alert('ナノバナナを使うには Gemini APIキーが必要です。\n右上の「⚙設定」の「Gemini APIキー」欄に入力してください。\n（Google AI Studio → Get API key で発行できます）'); openSettings(); return; }
+  } else {
+    if (!state.apiKey) { alert('OpenAI APIキーを設定してください'); openSettings(); return; }
+  }
+  state.aiParaModel = mkKey; save();
 
   const key = document.getElementById('aiParaMotion').value;
   const motion = AI_PARA_MOTIONS[key];
@@ -4441,13 +4513,12 @@ async function aiParaGenerate() {
     }
   }
 
-  if (!confirm(`AIで ${G}コマ生成します（画像生成API ${G}回分の料金がかかります）。\n元画像と合わせて合計 ${total}コマのパラパラアニメになります。\nよろしいですか？`)) return;
+  if (!confirm(`${mk.label} で ${G}コマ生成します（画像生成API ${G}回分の料金がかかります）。\n元画像と合わせて合計 ${total}コマのパラパラアニメになります。\nよろしいですか？`)) return;
 
   const btn = document.getElementById('aiParaBtn');
   btn.disabled = true;
   let doneCnt = 0;
   btn.innerHTML = `<span class="spinner"></span>生成中… 0/${G}`;
-  const baseBlob = b64ToBlob(c.image);
   const results = new Array(G).fill(null);
   const errors = [];
   let cursor = 0;
@@ -4457,7 +4528,7 @@ async function aiParaGenerate() {
       while (cursor < G) {
         const g = cursor++;
         try {
-          results[g] = await _aiParaGenFrame(baseBlob, _aiParaPrompt(phases[g]));
+          results[g] = await _aiParaGenFrame(c.image, _aiParaPrompt(phases[g], mk.transparent), mk);
         } catch (e) {
           console.error(`[AIパラパラ コマ${g + 2}] failed:`, e);
           errors.push(e.message || String(e));
@@ -4474,7 +4545,9 @@ async function aiParaGenerate() {
   const okB64s = results.filter(Boolean);
   if (!okB64s.length) {
     alert('AIコマの生成にすべて失敗しました。\n\n最初のエラー：\n' + (errors[0] || '不明') +
-      '\n\n【よくある原因】\n・OpenAIの本人確認(Organization Verification)未完了\n・課金設定/クレジット残高不足');
+      (mk.provider === 'gemini'
+        ? '\n\n【よくある原因】\n・Gemini APIキーの間違い・未設定\n・無料枠の上限超過（時間をおくか課金設定）\n・選んだナノバナナのモデルが使えないアカウント → 「ナノバナナ 旧版」をお試しください'
+        : '\n\n【よくある原因】\n・OpenAIの本人確認(Organization Verification)未完了\n・課金設定/クレジット残高不足\n・選んだモデルが使えないアカウント → 「イメージ1」をお試しください'));
     return;
   }
 
