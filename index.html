@@ -4400,14 +4400,20 @@ const AI_PARA_MODELS = {
   'nb1':   { provider: 'gemini', model: 'gemini-2.5-flash-image', label: 'ナノバナナ 旧版', transparent: false },
 };
 
-// 元画像と同一のキャラ・画風のまま、指定の動きの段階だけを変えるプロンプト
+// 元画像と同一のキャラ・画風・背景の飾りのまま、指定の動きの段階だけを変えるプロンプト。
+// 「背景を描くな」と指示すると太陽・雲・草などスタンプ内の飾りまで消されるため、
+// 「キャラのポーズ以外は1ピクセルも変えない」方向で指示する
 function _aiParaPrompt(phase, transparent) {
   return 'This image is one frame of a LINE sticker flip-book animation. ' +
-    'Redraw the EXACT same character: same art style, same line weight, same colors, same proportions, ' +
-    'same size and same position on the canvas. Keep any text or lettering exactly as it is. ' +
-    'Change ONLY this: ' + phase + '. ' +
-    'Flat sticker illustration, no new objects, no background scenery, ' +
-    (transparent ? 'transparent background.' : 'plain pure solid white background (no shadows, no gradients on the background).');
+    'Redraw the EXACT same image: same character, same art style, same line weight, same colors, ' +
+    'same proportions, same size and same position on the canvas. ' +
+    'Keep ALL other elements of the image completely unchanged and in the same positions — ' +
+    'text and lettering, background decorations such as sun, clouds, grass, flowers, sparkles, props and effects must stay identical. ' +
+    'Do not add any new elements and do not remove any existing elements. ' +
+    'Change ONLY the character\'s pose/expression as follows: ' + phase + '. ' +
+    (transparent
+      ? 'The empty canvas area around the artwork must remain transparent.'
+      : 'The empty canvas area around the artwork must be plain pure solid white (no shadows, no gradients).');
 }
 
 // 1コマ分をAI生成。成功で base64(PNG) を返す。透過非対応モデルは背景を自動で透過処理する
