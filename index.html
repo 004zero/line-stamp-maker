@@ -573,6 +573,8 @@
         <button class="btn btn-secondary btn-sm" onclick="editRemoveWhite('safe')" title="顔・体を守って白背景を消す">白を透明に(やさしく)</button>
         <button class="btn btn-secondary btn-sm" onclick="editRemoveWhite('strong')" title="文字ぎわ・文字の輪の中まで消す（消えすぎたら↩で戻す）">白を透明に(しっかり)</button>
         <button class="btn btn-secondary btn-sm" onclick="editFixHoles()" title="絵の内側で透けてしまっている部分（穴・半透明）を、まわりの色で埋めて直す。外側の輪郭のなめらかさはそのまま">🩹 透けを直す</button>
+        <button class="btn btn-secondary btn-sm" id="editAlphaShowBtn" onclick="editAlphaToggle()" title="LINE審査で弾かれる「透過漏れ」を赤く重ねて表示します（もう一度押すと消えます）。消しゴム等で直すたびに赤表示も更新されます">🔴 透過漏れを見る</button>
+        <button class="btn btn-secondary btn-sm" onclick="editAlphaFix()" title="透過漏れ（背景の半透明ゴミ・見えないほど薄いピクセル）をワンタップでまとめて修正します（↩で戻せます）">🩹 透過漏れを自動修正</button>
         <button class="btn btn-secondary btn-sm" id="editAllFramesBtn" style="display:none" onclick="editApplyToAllFrames()" title="表示中のコマで行った消しゴム・ペンの修正を、他の全コマにも適用します">⧉ 全コマへ反映</button>
       </div>
       <div id="editSelPanel" style="display:none;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px;background:#eef7ff;border:1px solid #cfe6ff;border-radius:7px;padding:8px 10px">
@@ -621,6 +623,7 @@
           onmousedown="editDown(event)" onmousemove="editMove(event)" onmouseup="editUp(event)"
           ontouchstart="editDown(event)" ontouchmove="editMove(event)" ontouchend="editUp(event)" ontouchcancel="editUp(event)"></canvas>
         <div id="editStampMarker" style="position:absolute;width:20px;height:20px;border:3px solid #f59e0b;border-radius:50%;box-shadow:0 0 0 2px rgba(255,255,255,.95), inset 0 0 0 2px rgba(255,255,255,.95);pointer-events:none;display:none;transform:translate(-50%,-50%);z-index:5"></div>
+        <canvas id="editAlphaOverlay" style="position:absolute;left:0;top:0;pointer-events:none;display:none;z-index:4"></canvas>
       </div>
       <div class="modal-actions">
         <button class="btn btn-secondary" onclick="closeEdit()">キャンセル</button>
@@ -1359,7 +1362,7 @@ function openEdit(i) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(img, 0, 0);
     _edit = { i, canvas, ctx, tool: 'eraser', drawing: false, panning: false, last: null, history: [], view: { z: 1, ox: 0, oy: 0 },
-      frames, frameIndex: 0,
+      frames, frameIndex: 0, alphaShow: false,
       stampSrc: null, stampPick: false, stampLasso: false, stampLassoing: false,
       stampOffset: null, stampSnap: null, stampBrush: null,
       baseline: ctx.getImageData(0, 0, canvas.width, canvas.height) }; // 編集前の状態（全コマ反映の差分計算に使う）
@@ -1370,7 +1373,10 @@ function openEdit(i) {
     const sp = document.getElementById('editSelPanel'); if (sp) sp.style.display = 'none';
     const fp = document.getElementById('editFloatPanel'); if (fp) fp.style.display = 'none';
     const pb = document.getElementById('editPasteBtn'); if (pb) pb.disabled = true;
+    const ab = document.getElementById('editAlphaShowBtn'); if (ab) ab.innerHTML = '🔴 透過漏れを見る';
     document.getElementById('editModal').classList.add('open');
+    _applyView(); // モーダル表示後にもう一度：枠の実サイズが確定してから表示サイズを合わせる
+    if (_editOpenWithAlpha) { _editOpenWithAlpha = false; editAlphaToggle(true); }
   };
   img.src = isPara ? frames[0] : b64src(c.image);
 }
@@ -1473,8 +1479,29 @@ function setEditTool(t) {
 function _applyView() {
   const cv = document.getElementById('editCanvas');
   if (!cv || !_edit) return;
+  // 小さい画像でも枠の大きさまで拡大して表示する（見た目だけ・画像データは変わらない）
+  const holder = cv.parentElement;
+  if (holder && holder.clientWidth > 20 && cv.width > 0) {
+    const box = document.getElementById('editModalBox');
+    const isWide = box && box.classList.contains('wide');
+    const availW = holder.clientWidth - 16;
+    const availH = Math.max(200, Math.round(window.innerHeight * (isWide ? 0.74 : 0.55)));
+    const s = Math.min(availW / cv.width, availH / cv.height);
+    cv.style.width = Math.round(cv.width * s) + 'px';
+    cv.style.height = Math.round(cv.height * s) + 'px';
+  }
   const v = _edit.view;
   cv.style.transform = `translate(${v.ox}px, ${v.oy}px) scale(${v.z})`;
+  // 🔴透過漏れオーバーレイをキャンバスにぴったり重ねる（ズーム・移動にも追従）
+  const ov = document.getElementById('editAlphaOverlay');
+  if (ov) {
+    ov.style.left = cv.offsetLeft + 'px';
+    ov.style.top = cv.offsetTop + 'px';
+    ov.style.width = cv.style.width;
+    ov.style.height = cv.style.height;
+    ov.style.transform = cv.style.transform;
+    ov.style.display = _edit.alphaShow ? '' : 'none';
+  }
   _editStampMarker();
 }
 function editZoom(f) {
@@ -1996,6 +2023,61 @@ function _hslToRgb(h, s, l) {
 }
 
 function editUndo() { if (_edit && _edit.history.length) { _edit.ctx.putImageData(_edit.history.pop(), 0, 0); _edit.scaleBase = null; _edit.sel = null; _edit.selSnap = null; const p = document.getElementById('editSelPanel'); if (p) p.style.display = 'none'; } }
+
+// ===== 🔴 修正画面での透過漏れ表示・修正 =====
+let _editOpenWithAlpha = false; // 透過チェック一覧の「修正する」から開いたとき、赤表示ONで始める
+
+// 現在の編集キャンバスから透過漏れだけを赤く描いたオーバーレイを作る
+function _editAlphaRefresh() {
+  if (!_edit || !_edit.alphaShow) return;
+  const cv = _edit.canvas;
+  const ov = document.getElementById('editAlphaOverlay');
+  if (!ov) return;
+  ov.width = cv.width; ov.height = cv.height;
+  const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+  const bg = alphaFloodBg(d, cv.width, cv.height, ALPHA_FG_TH);
+  const octx = ov.getContext('2d'), o = octx.createImageData(cv.width, cv.height), q = o.data;
+  let cnt = 0;
+  for (let p = 0; p < cv.width * cv.height; p++) {
+    const i = p * 4, a = d[i + 3];
+    const bad = (a > 0 && a < 255 && bg[p]) || (a > 0 && a <= 16);
+    if (bad) { q[i] = 255; q[i + 1] = 40; q[i + 2] = 70; q[i + 3] = 255; cnt++; }
+  }
+  octx.putImageData(o, 0, 0);
+  const btn = document.getElementById('editAlphaShowBtn');
+  if (btn) btn.innerHTML = cnt ? `🔴 透過漏れ ${cnt}px（押すと非表示）` : '✅ 透過漏れなし（押すと非表示）';
+  _applyView(); // オーバーレイの位置・表示を最新化
+}
+
+function editAlphaToggle(force) {
+  if (!_edit) return;
+  _edit.alphaShow = (typeof force === 'boolean') ? force : !_edit.alphaShow;
+  if (!_edit.alphaShow) {
+    const btn = document.getElementById('editAlphaShowBtn');
+    if (btn) btn.innerHTML = '🔴 透過漏れを見る';
+    _applyView();
+    return;
+  }
+  _editAlphaRefresh();
+}
+
+// 透過漏れをまとめて修正（背景の半透明ゴミ・薄すぎるピクセル・見えないゴーストを除去。↩で戻せる）
+function editAlphaFix() {
+  if (!_edit) return;
+  _editSaveHistory();
+  alphaFixCanvas(_edit.canvas);
+  if (_edit.alphaShow) _editAlphaRefresh();
+  else editAlphaToggle(true); // 修正結果（✅表示）が見えるようにON
+}
+
+// 透過漏れ表示中は、消しゴム等の操作のたびに赤表示を追従させる
+const _editUpBase = editUp;
+editUp = function (e) { _editUpBase(e); if (_edit && _edit.alphaShow) _editAlphaRefresh(); };
+const _editUndoBase = editUndo;
+editUndo = function () { _editUndoBase(); if (_edit && _edit.alphaShow) _editAlphaRefresh(); };
+
+// 画面サイズが変わったら編集キャンバスの表示サイズを合わせ直す
+window.addEventListener('resize', () => { if (_edit) _applyView(); });
 
 // ===== 🐾 スタンプ（コピー元の色・模様をなぞった場所に写す） =====
 function _editStampStatus() {
@@ -3811,7 +3893,8 @@ async function openAlphaCheck() {
     </div>
     <div style="font-size:12px;opacity:.8;margin-bottom:12px;line-height:1.6">
       赤い部分が「透過漏れ」＝LINE審査で弾かれる箇所です。<br>
-      🩹自動修正がONなら、書き出し時に<b>自動でこの赤い部分が透明化</b>されるので、そのまま書き出して大丈夫です。
+      🩹自動修正がONなら、書き出し時に<b>自動でこの赤い部分が透明化</b>されるので、そのまま書き出して大丈夫です。<br>
+      自分で確認しながら直したいときは、各スタンプの<b>「🖊 修正する」</b>ボタン → 修正画面が赤表示付きで開きます。
     </div>
     <div id="alphaGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px"></div>
   </div>`;
@@ -3822,7 +3905,7 @@ async function openAlphaCheck() {
   const grid = document.getElementById('alphaGrid');
   let ngCount = 0, totalLeak = 0;
   const targets = [];
-  state.captions.forEach(c => { if (c.image) targets.push({ name: `${String(targets.length + 1).padStart(2, '0')}.png`, b64: c.image }); });
+  state.captions.forEach((c, ci) => { if (c.image) targets.push({ name: `${String(targets.length + 1).padStart(2, '0')}.png`, b64: c.image, ci }); });
   if (state.mainImage) targets.push({ name: 'main.png', b64: state.mainImage });
   if (state.tabImage) targets.push({ name: 'tab.png', b64: state.tabImage });
 
@@ -3845,6 +3928,14 @@ async function openAlphaCheck() {
     cap.style.cssText = 'font-size:12px;margin-top:6px;color:' + (scan.total ? '#ff8b9e' : '#7ee2a8');
     cap.textContent = t.name + '：' + (scan.total ? `⚠ ${scan.total}px` : '✅ OK');
     cell.appendChild(cap);
+    // このスタンプをそのまま修正画面で開く（赤表示ON・main/tabは対象外）
+    if (t.ci != null) {
+      const eb = document.createElement('button');
+      eb.textContent = '🖊 修正する';
+      eb.style.cssText = 'margin-top:6px;padding:5px 12px;border-radius:6px;border:none;background:' + (scan.total ? '#e0455e' : '#3a3f4e') + ';color:#fff;cursor:pointer;font-size:12px;font-weight:600';
+      eb.onclick = () => { ov.remove(); _editOpenWithAlpha = true; openEdit(t.ci); };
+      cell.appendChild(eb);
+    }
     grid.appendChild(cell);
   }
   document.getElementById('alphaSummary').textContent =
