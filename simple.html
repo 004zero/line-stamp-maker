@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>LINEスタンプメーカー かんたん版（画像から）🟢</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@900&family=Mochiy+Pop+One&family=Dela+Gothic+One&family=RocknRoll+One&family=Yusei+Magic&family=Yomogi&family=Hachi+Maru+Pop&family=Klee+One:wght@600&family=DotGothic16&family=Shippori+Mincho+B1:wght@800&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/pako@1.0.11/dist/pako.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/upng-js@2.1.0/UPNG.js"></script>
@@ -638,20 +641,21 @@
         <input type="file" id="editBgFile" accept="image/*" style="display:none" onchange="editBgFile(event)">
         <span style="font-size:12px;font-weight:700;color:#555;margin-left:8px">重ねる:</span>
         <button class="btn btn-secondary btn-sm" onclick="document.getElementById('editLayerImgFile').click()" title="絵の上に別の画像を重ねます（小物・飾りなど）。ドラッグで移動、大きさ・角度も変えられます">🧩 画像を重ねる</button>
-        <button class="btn btn-secondary btn-sm" onclick="editLayerAddText()" title="絵の上に文字を重ねます。焼き込むまでは何度でも文字の打ち直し・色変え・移動ができます">🔤 文字を入れる</button>
+        <button class="btn btn-secondary btn-sm" onclick="editLayerAddText()" title="絵の上に文字を重ねます。字体も選べて、✔保存したあとも開き直せば打ち直し・移動ができます">🔤 文字を入れる</button>
         <input type="file" id="editLayerImgFile" accept="image/*" style="display:none" onchange="editLayerImgFile(event)">
       </div>
       <div id="editLayerPanel" style="display:none;margin-bottom:10px;background:#eefbf2;border:1px solid #bfe8cd;border-radius:7px;padding:8px 10px">
         <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
           <span style="font-size:12px;font-weight:700;color:#0a7a3d">🧩 重ねた画像・文字：</span>
           <div id="editLayerList" style="display:flex;gap:4px;flex-wrap:wrap"></div>
-          <button class="btn btn-secondary btn-sm" onclick="editLayerFlatten()" title="重ねている画像・文字を全部、絵に焼き込んで1枚にします（↩で1回戻せます）。✔保存のときにも自動で焼き込まれます">✅ 絵に焼き込む</button>
+          <button class="btn btn-secondary btn-sm" onclick="editLayerFlatten()" title="重ねている画像・文字を絵に焼き込んで1枚に固定します（固定後は動かせません。↩で1回戻せます）。普段は押さなくてOK：✔保存すればレイヤーは保たれ、次に開いたときまた動かせます">✅ 絵に焼き込む</button>
         </div>
         <div id="editLayerProps" style="display:none;margin-top:6px">
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
             <input type="text" id="editLayerText" class="form-input" style="max-width:180px;display:none;padding:6px 10px;font-size:13px" placeholder="文字を入力" oninput="editLayerSetText(this.value)">
             <label style="font-size:12px;color:#555;display:inline-flex;align-items:center;gap:4px">大きさ<input type="range" id="editLayerSizeCtl" min="10" max="300" value="100" oninput="editLayerSetSize(this.value)" style="vertical-align:middle"></label>
             <label style="font-size:12px;color:#555;display:inline-flex;align-items:center;gap:4px">角度<input type="range" id="editLayerAngleCtl" min="-180" max="180" value="0" oninput="editLayerSetAngle(this.value)" style="vertical-align:middle"></label>
+            <label id="editLayerFontWrap" style="font-size:12px;color:#555;display:inline-flex;align-items:center;gap:4px">字体<select id="editLayerFontCtl" class="form-select" style="padding:5px 8px;font-size:12px;max-width:160px;width:auto" onchange="editLayerSetFont(this.value)"></select></label>
             <label id="editLayerColorWrap" style="font-size:12px;color:#555;display:inline-flex;align-items:center;gap:4px">色<input type="color" id="editLayerColorCtl" value="#333333" oninput="editLayerSetColor(this.value)"></label>
             <label id="editLayerOutlineWrap" style="font-size:12px;color:#555;display:inline-flex;align-items:center;gap:4px"><input type="checkbox" id="editLayerOutlineCtl" checked onchange="editLayerSetOutline(this.checked)">白フチ</label>
             <button class="btn btn-secondary btn-sm" id="editLayerFlipBtn" onclick="editLayerFlip()" style="display:none">◀▶ 反転</button>
@@ -660,7 +664,7 @@
             <button class="btn btn-secondary btn-sm" onclick="editLayerDelete()">🗑 削除</button>
             <button class="btn btn-secondary btn-sm" onclick="editLayerDeselect()">✕ 選択解除</button>
           </div>
-          <div style="font-size:11px;color:#888;margin-top:4px">プレビュー上を<strong>ドラッグで移動</strong>できます。何もない所をタップ（または✕選択解除）すると、消しゴム等のツールに戻ります。文字は焼き込むまで<strong>何度でも打ち直し・色変え</strong>ができます。</div>
+          <div style="font-size:11px;color:#888;margin-top:4px">プレビュー上を<strong>ドラッグで移動</strong>できます。何もない所をタップ（または✕選択解除）すると、消しゴム等のツールに戻ります。<strong>✔保存したあとも、修正画面を開き直せば文字・画像をまた動かせます</strong>（✅焼き込んだ分は固定されます）。</div>
         </div>
       </div>
       <div style="position:relative;text-align:center;background:repeating-conic-gradient(#f0f0f0 0% 25%, #fff 0% 50%) 50% / 16px 16px;border:1px solid #ddd;border-radius:8px;padding:8px;overflow:hidden">
@@ -1410,6 +1414,9 @@ function openEdit(i) {
   // パラパラ（コマ持ち込み）ならコマ一覧を出して1コマずつ修正できるようにする
   const isPara = !!(c.anim && c.anim.custom && Array.isArray(c.anim.frames) && c.anim.frames.length);
   const frames = isPara ? c.anim.frames.slice() : null;
+  // 前回保存したレイヤー（文字・重ねた画像）があれば、ベース画像＋レイヤーの形で復元する。
+  // c.image が別の機能（再取り込みなど）で差し替わっていたら合成が一致しないので使わない
+  const savedLayers = (!isPara && c.editLayers && c.editLayers.composite === c.image && Array.isArray(c.editLayers.layers) && c.editLayers.layers.length) ? c.editLayers : null;
   const canvas = document.getElementById('editCanvas');
   const ctx = canvas.getContext('2d');
   const img = new Image();
@@ -1435,8 +1442,14 @@ function openEdit(i) {
     document.getElementById('editModal').classList.add('open');
     _applyView(); // モーダル表示後にもう一度：枠の実サイズが確定してから表示サイズを合わせる
     if (_editOpenWithAlpha) { _editOpenWithAlpha = false; editAlphaToggle(true); }
+    // 前回保存した文字・重ね画像のレイヤーを復元（また個別に動かせる）
+    if (savedLayers) {
+      _restoreLayers(savedLayers.layers).then(ls => {
+        if (_edit && _edit.i === i && ls.length) { _edit.layers = ls; _edit.layerSel = -1; _editLayerRender(); }
+      });
+    }
   };
-  img.src = isPara ? frames[0] : b64src(c.image);
+  img.src = isPara ? frames[0] : (savedLayers ? savedLayers.base : b64src(c.image));
 }
 
 // パラパラ修正用：コマ一覧の描画
@@ -2193,14 +2206,30 @@ editUndo = function () { _editUndoBase(); if (_edit && _edit.alphaShow) _editAlp
 // 画面サイズが変わったら編集キャンバスの表示サイズを合わせ直す
 window.addEventListener('resize', () => { if (_edit) _applyView(); });
 
-// ===== 🧩 レイヤー（絵の上に画像・文字を重ねる。焼き込むまで移動・修正が自由） =====
-function _layerFont() { return "'Hiragino Maru Gothic ProN','Yu Gothic UI','Yu Gothic','Meiryo',sans-serif"; }
+// ===== 🧩 レイヤー（絵の上に画像・文字を重ねる。保存後も開き直せばまた動かせる） =====
+// スタンプでよく使われる字体（Google Fonts。オフライン時は端末の丸ゴシックで代替表示）
+const LAYER_FONTS = [
+  { label: '丸ゴシック（標準）', family: "'M PLUS Rounded 1c','Hiragino Maru Gothic ProN','Yu Gothic',sans-serif", weight: 900 },
+  { label: 'ポップ',             family: "'Mochiy Pop One','Hiragino Maru Gothic ProN',sans-serif", weight: 400 },
+  { label: '極太インパクト',     family: "'Dela Gothic One',sans-serif", weight: 400 },
+  { label: 'ふとまるポップ',     family: "'RocknRoll One',sans-serif", weight: 400 },
+  { label: '手書きマジック',     family: "'Yusei Magic',sans-serif", weight: 400 },
+  { label: 'ゆる手書き',         family: "'Yomogi',cursive", weight: 400 },
+  { label: 'まる文字',           family: "'Hachi Maru Pop',cursive", weight: 400 },
+  { label: '教科書・手書き風',   family: "'Klee One',cursive", weight: 600 },
+  { label: 'ドット文字',         family: "'DotGothic16',sans-serif", weight: 400 },
+  { label: '明朝（上品）',       family: "'Shippori Mincho B1',serif", weight: 800 },
+];
+function _layerFontOf(L) {
+  const f = LAYER_FONTS[L.fontKey || 0] || LAYER_FONTS[0];
+  return `${f.weight} ${L.size}px ${f.family}`;
+}
 
 // レイヤーのおおよその大きさ（選択枠・当たり判定用）
 function _layerSize(L) {
   if (L.type === 'image') return { w: L.img.naturalWidth * L.scale, h: L.img.naturalHeight * L.scale };
   const m = document.createElement('canvas').getContext('2d');
-  m.font = `900 ${L.size}px ${_layerFont()}`;
+  m.font = _layerFontOf(L);
   return { w: Math.max(20, m.measureText(L.text || ' ').width + L.size * 0.3), h: L.size * 1.3 };
 }
 
@@ -2214,7 +2243,7 @@ function _drawLayer(ctx, L) {
     ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(L.img, -w / 2, -h / 2, w, h);
   } else {
-    ctx.font = `900 ${L.size}px ${_layerFont()}`;
+    ctx.font = _layerFontOf(L);
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     if (L.outline !== false) {
       ctx.lineJoin = 'round';
@@ -2226,6 +2255,44 @@ function _drawLayer(ctx, L) {
     ctx.fillText(L.text || '', 0, 0);
   }
   ctx.restore();
+}
+
+// 選んだ字体を読み込んでから描き直す（Webフォントは初回だけ読み込みが要る）
+function _layerLoadFont(L) {
+  const f = LAYER_FONTS[L.fontKey || 0] || LAYER_FONTS[0];
+  try {
+    document.fonts.load(`${f.weight} 32px ${f.family}`).then(() => { if (_edit) _editLayerRender(); });
+  } catch (_) {}
+}
+function editLayerSetFont(k) {
+  const L = _layerSel(); if (!L || L.type !== 'text') return;
+  L.fontKey = parseInt(k, 10) || 0;
+  _layerLoadFont(L);
+  _editLayerRender();
+}
+
+// 保存・復元（✔保存後も、修正画面を開き直せば文字・画像をまた動かせるようにする）
+function _serializeLayer(L) {
+  const o = { type: L.type, x: L.x, y: L.y, angle: L.angle || 0, pct: L.pct || 100 };
+  if (L.type === 'image') { o.src = L.img.src; o.sfit = L.sfit; o.flip = !!L.flip; }
+  else { o.text = L.text; o.s0 = L.s0; o.color = L.color; o.outline = L.outline !== false; o.fontKey = L.fontKey || 0; }
+  return o;
+}
+async function _restoreLayers(list) {
+  const out = [];
+  for (const o of (list || [])) {
+    try {
+      if (o.type === 'image') {
+        const img = await loadImage(o.src);
+        out.push({ type: 'image', img, x: o.x, y: o.y, angle: o.angle || 0, pct: o.pct || 100, sfit: o.sfit, scale: (o.sfit || 1) * (o.pct || 100) / 100, flip: !!o.flip });
+      } else {
+        const L = { type: 'text', text: o.text || '', x: o.x, y: o.y, angle: o.angle || 0, pct: o.pct || 100, s0: o.s0 || 40, size: Math.max(8, Math.round((o.s0 || 40) * (o.pct || 100) / 100)), color: o.color || '#333333', outline: o.outline !== false, fontKey: o.fontKey || 0 };
+        _layerLoadFont(L);
+        out.push(L);
+      }
+    } catch (_) {}
+  }
+  return out;
 }
 
 // レイヤーをオーバーレイに描画（選択中は緑の点線枠つき）＋パネルを最新化
@@ -2271,12 +2338,18 @@ function _editLayerPanelSync() {
   }
   const cw = document.getElementById('editLayerColorWrap'); if (cw) cw.style.display = sel.type === 'text' ? '' : 'none';
   const ow = document.getElementById('editLayerOutlineWrap'); if (ow) ow.style.display = sel.type === 'text' ? '' : 'none';
+  const fw2 = document.getElementById('editLayerFontWrap'); if (fw2) fw2.style.display = sel.type === 'text' ? '' : 'none';
   const fb = document.getElementById('editLayerFlipBtn'); if (fb) fb.style.display = sel.type === 'image' ? '' : 'none';
   const sz = document.getElementById('editLayerSizeCtl'); if (sz && document.activeElement !== sz) sz.value = Math.round(sel.pct || 100);
   const an = document.getElementById('editLayerAngleCtl'); if (an && document.activeElement !== an) an.value = Math.round(sel.angle || 0);
   if (sel.type === 'text') {
     const cc = document.getElementById('editLayerColorCtl'); if (cc) cc.value = sel.color || '#333333';
     const oc = document.getElementById('editLayerOutlineCtl'); if (oc) oc.checked = sel.outline !== false;
+    const fc = document.getElementById('editLayerFontCtl');
+    if (fc) {
+      if (!fc.options.length) fc.innerHTML = LAYER_FONTS.map((f, k) => `<option value="${k}">${f.label}</option>`).join('');
+      if (document.activeElement !== fc) fc.value = String(sel.fontKey || 0);
+    }
   }
 }
 
@@ -2306,8 +2379,10 @@ function editLayerAddText() {
   if (!_edit) return;
   const cv = _edit.canvas;
   const s0 = Math.max(16, Math.round(Math.min(cv.width, cv.height) * 0.16));
-  _edit.layers.push({ type: 'text', text: 'テキスト', x: Math.round(cv.width / 2), y: Math.round(cv.height * 0.18), angle: 0, pct: 100, s0, size: s0, color: (document.getElementById('editColor') || {}).value || '#333333', outline: true });
+  const L = { type: 'text', text: 'テキスト', x: Math.round(cv.width / 2), y: Math.round(cv.height * 0.18), angle: 0, pct: 100, s0, size: s0, color: (document.getElementById('editColor') || {}).value || '#333333', outline: true, fontKey: 0 };
+  _edit.layers.push(L);
   _edit.layerSel = _edit.layers.length - 1;
+  _layerLoadFont(L);
   _editLayerRender();
   const ti = document.getElementById('editLayerText');
   if (ti) { ti.focus(); ti.select(); }
@@ -2571,8 +2646,8 @@ async function editRemoveWhite(mode) {
 }
 async function applyEdit() {
   if (!_edit) return;
-  // 保存前に、重ねたレイヤーは絵に焼き込み・貼り付け途中は確定・選択ハイライトの線は除去
-  if (_edit.layers && _edit.layers.length) editLayerFlatten();
+  // パラパラはコマ画像へ焼き込み。通常スタンプはレイヤーを保持したまま合成保存する（下で処理）
+  if (_edit.frames && _edit.layers && _edit.layers.length) editLayerFlatten();
   if (_edit.floating) editFloatingCommit();
   else if (_edit.sel && _edit.selSnap) _editClearSelState();
   const ei = _edit.i;
@@ -2605,7 +2680,19 @@ async function applyEdit() {
     return;
   }
 
-  c.image = cv.toDataURL('image/png').split(',')[1];
+  // ベース＋レイヤーを合成した絵をスタンプ画像として保存しつつ、レイヤー情報も控えておく。
+  // → 次に修正画面を開いたとき、文字・重ねた画像をまた個別に動かせる
+  if (_edit.layers && _edit.layers.length) {
+    const comp = document.createElement('canvas'); comp.width = cv.width; comp.height = cv.height;
+    const cx2 = comp.getContext('2d');
+    cx2.drawImage(cv, 0, 0);
+    for (const L of _edit.layers) _drawLayer(cx2, L);
+    c.image = comp.toDataURL('image/png').split(',')[1];
+    c.editLayers = { base: cv.toDataURL('image/png'), composite: c.image, layers: _edit.layers.map(_serializeLayer) };
+  } else {
+    c.image = cv.toDataURL('image/png').split(',')[1];
+    c.editLayers = null;
+  }
   c.status = 'done';
   save();
   renderStamps();
