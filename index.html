@@ -616,6 +616,32 @@
         <button class="btn btn-secondary btn-sm" onclick="document.getElementById('editBgFile').click()">🖼 画像を差し込む</button>
         <button class="btn btn-secondary btn-sm" onclick="editAIBackground()">🎨 AIで背景を作る</button>
         <input type="file" id="editBgFile" accept="image/*" style="display:none" onchange="editBgFile(event)">
+        <span style="font-size:12px;font-weight:700;color:#555;margin-left:8px">重ねる:</span>
+        <button class="btn btn-secondary btn-sm" onclick="document.getElementById('editLayerImgFile').click()" title="絵の上に別の画像を重ねます（小物・飾りなど）。ドラッグで移動、大きさ・角度も変えられます">🧩 画像を重ねる</button>
+        <button class="btn btn-secondary btn-sm" onclick="editLayerAddText()" title="絵の上に文字を重ねます。焼き込むまでは何度でも文字の打ち直し・色変え・移動ができます">🔤 文字を入れる</button>
+        <input type="file" id="editLayerImgFile" accept="image/*" style="display:none" onchange="editLayerImgFile(event)">
+      </div>
+      <div id="editLayerPanel" style="display:none;margin-bottom:10px;background:#eefbf2;border:1px solid #bfe8cd;border-radius:7px;padding:8px 10px">
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+          <span style="font-size:12px;font-weight:700;color:#0a7a3d">🧩 重ねた画像・文字：</span>
+          <div id="editLayerList" style="display:flex;gap:4px;flex-wrap:wrap"></div>
+          <button class="btn btn-secondary btn-sm" onclick="editLayerFlatten()" title="重ねている画像・文字を全部、絵に焼き込んで1枚にします（↩で1回戻せます）。✔保存のときにも自動で焼き込まれます">✅ 絵に焼き込む</button>
+        </div>
+        <div id="editLayerProps" style="display:none;margin-top:6px">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <input type="text" id="editLayerText" class="form-input" style="max-width:180px;display:none;padding:6px 10px;font-size:13px" placeholder="文字を入力" oninput="editLayerSetText(this.value)">
+            <label style="font-size:12px;color:#555;display:inline-flex;align-items:center;gap:4px">大きさ<input type="range" id="editLayerSizeCtl" min="10" max="300" value="100" oninput="editLayerSetSize(this.value)" style="vertical-align:middle"></label>
+            <label style="font-size:12px;color:#555;display:inline-flex;align-items:center;gap:4px">角度<input type="range" id="editLayerAngleCtl" min="-180" max="180" value="0" oninput="editLayerSetAngle(this.value)" style="vertical-align:middle"></label>
+            <label id="editLayerColorWrap" style="font-size:12px;color:#555;display:inline-flex;align-items:center;gap:4px">色<input type="color" id="editLayerColorCtl" value="#333333" oninput="editLayerSetColor(this.value)"></label>
+            <label id="editLayerOutlineWrap" style="font-size:12px;color:#555;display:inline-flex;align-items:center;gap:4px"><input type="checkbox" id="editLayerOutlineCtl" checked onchange="editLayerSetOutline(this.checked)">白フチ</label>
+            <button class="btn btn-secondary btn-sm" id="editLayerFlipBtn" onclick="editLayerFlip()" style="display:none">◀▶ 反転</button>
+            <button class="btn btn-secondary btn-sm" onclick="editLayerRaise(1)" title="重なり順を上（前）へ">⬆ 前へ</button>
+            <button class="btn btn-secondary btn-sm" onclick="editLayerRaise(-1)" title="重なり順を下（後ろ）へ">⬇ 後ろへ</button>
+            <button class="btn btn-secondary btn-sm" onclick="editLayerDelete()">🗑 削除</button>
+            <button class="btn btn-secondary btn-sm" onclick="editLayerDeselect()">✕ 選択解除</button>
+          </div>
+          <div style="font-size:11px;color:#888;margin-top:4px">プレビュー上を<strong>ドラッグで移動</strong>できます。何もない所をタップ（または✕選択解除）すると、消しゴム等のツールに戻ります。文字は焼き込むまで<strong>何度でも打ち直し・色変え</strong>ができます。</div>
+        </div>
       </div>
       <div style="position:relative;text-align:center;background:repeating-conic-gradient(#f0f0f0 0% 25%, #fff 0% 50%) 50% / 16px 16px;border:1px solid #ddd;border-radius:8px;padding:8px;overflow:hidden">
         <canvas id="editCanvas" style="max-width:100%;max-height:55vh;touch-action:none;cursor:crosshair"
@@ -624,6 +650,9 @@
           ontouchstart="editDown(event)" ontouchmove="editMove(event)" ontouchend="editUp(event)" ontouchcancel="editUp(event)"></canvas>
         <div id="editStampMarker" style="position:absolute;width:20px;height:20px;border:3px solid #f59e0b;border-radius:50%;box-shadow:0 0 0 2px rgba(255,255,255,.95), inset 0 0 0 2px rgba(255,255,255,.95);pointer-events:none;display:none;transform:translate(-50%,-50%);z-index:5"></div>
         <canvas id="editAlphaOverlay" style="position:absolute;left:0;top:0;pointer-events:none;display:none;z-index:4"></canvas>
+        <canvas id="editLayerOverlay" style="position:absolute;left:0;top:0;pointer-events:none;display:none;z-index:3;touch-action:none"
+          onmousedown="editLayerDown(event)" onmousemove="editLayerMove(event)" onmouseup="editLayerUp(event)"
+          ontouchstart="editLayerDown(event)" ontouchmove="editLayerMove(event)" ontouchend="editLayerUp(event)" ontouchcancel="editLayerUp(event)"></canvas>
       </div>
       <div class="modal-actions">
         <button class="btn btn-secondary" onclick="closeEdit()">キャンセル</button>
@@ -1362,13 +1391,14 @@ function openEdit(i) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(img, 0, 0);
     _edit = { i, canvas, ctx, tool: 'eraser', drawing: false, panning: false, last: null, history: [], view: { z: 1, ox: 0, oy: 0 },
-      frames, frameIndex: 0, alphaShow: false,
+      frames, frameIndex: 0, alphaShow: false, layers: [], layerSel: -1,
       stampSrc: null, stampPick: false, stampLasso: false, stampLassoing: false,
       stampOffset: null, stampSnap: null, stampBrush: null,
       baseline: ctx.getImageData(0, 0, canvas.width, canvas.height) }; // 編集前の状態（全コマ反映の差分計算に使う）
     _applyView();
     setEditTool('eraser');
     renderEditFrameStrip();
+    _editLayerRender();
     // 選択・貼り付けまわりを初期化
     const sp = document.getElementById('editSelPanel'); if (sp) sp.style.display = 'none';
     const fp = document.getElementById('editFloatPanel'); if (fp) fp.style.display = 'none';
@@ -1404,7 +1434,8 @@ function renderEditFrameStrip() {
 // パラパラ修正用：表示コマの切り替え（今のコマの編集内容は控えに保存される）
 function switchEditFrame(k) {
   if (!_edit || !_edit.frames || k === _edit.frameIndex || k < 0 || k >= _edit.frames.length) return;
-  // コマ切替前に、貼り付け途中は確定・選択ハイライトは消す
+  // コマ切替前に、重ねたレイヤーは今のコマへ焼き込み・貼り付け途中は確定・選択ハイライトは消す
+  if (_edit.layers && _edit.layers.length) editLayerFlatten();
   if (_edit.floating) editFloatingCommit();
   else if (_edit.sel && _edit.selSnap) _editClearSelState();
   _edit.frames[_edit.frameIndex] = _edit.canvas.toDataURL('image/png');
@@ -1458,6 +1489,8 @@ function closeEdit() {
   const mk = document.getElementById('editStampMarker'); if (mk) mk.style.display = 'none';
 }
 function setEditTool(t) {
+  // ツールを選んだらレイヤーの選択は解除（ドラッグ操作がツールに戻るように）
+  if (_edit && _edit.layerSel >= 0 && typeof editLayerDeselect === 'function') editLayerDeselect();
   // 選択ツールから別ツールへ移るときは、選択のハイライトを片付ける
   if (_edit && _edit.tool !== t && _edit.sel && t !== 'select') _editClearSelState();
   if (_edit) _edit.tool = t;
@@ -1492,16 +1525,24 @@ function _applyView() {
   }
   const v = _edit.view;
   cv.style.transform = `translate(${v.ox}px, ${v.oy}px) scale(${v.z})`;
-  // 🔴透過漏れオーバーレイをキャンバスにぴったり重ねる（ズーム・移動にも追従）
-  const ov = document.getElementById('editAlphaOverlay');
-  if (ov) {
+  // 🔴透過漏れ・🧩レイヤーの各オーバーレイをキャンバスにぴったり重ねる（ズーム・移動にも追従）
+  const ovs = [
+    ['editAlphaOverlay', !!_edit.alphaShow],
+    ['editLayerOverlay', !!(_edit.layers && _edit.layers.length)],
+  ];
+  for (const [oid, show] of ovs) {
+    const ov = document.getElementById(oid);
+    if (!ov) continue;
     ov.style.left = cv.offsetLeft + 'px';
     ov.style.top = cv.offsetTop + 'px';
     ov.style.width = cv.style.width;
     ov.style.height = cv.style.height;
     ov.style.transform = cv.style.transform;
-    ov.style.display = _edit.alphaShow ? '' : 'none';
+    ov.style.display = show ? '' : 'none';
   }
+  // レイヤー選択中だけレイヤー操作（ドラッグ）を受け付ける。未選択なら下のツールへ通す
+  const lov = document.getElementById('editLayerOverlay');
+  if (lov) lov.style.pointerEvents = (_edit.layerSel >= 0) ? 'auto' : 'none';
   _editStampMarker();
 }
 function editZoom(f) {
@@ -2079,6 +2120,204 @@ editUndo = function () { _editUndoBase(); if (_edit && _edit.alphaShow) _editAlp
 // 画面サイズが変わったら編集キャンバスの表示サイズを合わせ直す
 window.addEventListener('resize', () => { if (_edit) _applyView(); });
 
+// ===== 🧩 レイヤー（絵の上に画像・文字を重ねる。焼き込むまで移動・修正が自由） =====
+function _layerFont() { return "'Hiragino Maru Gothic ProN','Yu Gothic UI','Yu Gothic','Meiryo',sans-serif"; }
+
+// レイヤーのおおよその大きさ（選択枠・当たり判定用）
+function _layerSize(L) {
+  if (L.type === 'image') return { w: L.img.naturalWidth * L.scale, h: L.img.naturalHeight * L.scale };
+  const m = document.createElement('canvas').getContext('2d');
+  m.font = `900 ${L.size}px ${_layerFont()}`;
+  return { w: Math.max(20, m.measureText(L.text || ' ').width + L.size * 0.3), h: L.size * 1.3 };
+}
+
+function _drawLayer(ctx, L) {
+  ctx.save();
+  ctx.translate(L.x, L.y);
+  ctx.rotate((L.angle || 0) * Math.PI / 180);
+  if (L.type === 'image') {
+    if (L.flip) ctx.scale(-1, 1);
+    const w = L.img.naturalWidth * L.scale, h = L.img.naturalHeight * L.scale;
+    ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(L.img, -w / 2, -h / 2, w, h);
+  } else {
+    ctx.font = `900 ${L.size}px ${_layerFont()}`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    if (L.outline !== false) {
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = Math.max(3, L.size * 0.22);
+      ctx.strokeStyle = '#ffffff';
+      ctx.strokeText(L.text || '', 0, 0);
+    }
+    ctx.fillStyle = L.color || '#333333';
+    ctx.fillText(L.text || '', 0, 0);
+  }
+  ctx.restore();
+}
+
+// レイヤーをオーバーレイに描画（選択中は緑の点線枠つき）＋パネルを最新化
+function _editLayerRender() {
+  if (!_edit) return;
+  const ov = document.getElementById('editLayerOverlay');
+  if (!ov) return;
+  const cv = _edit.canvas;
+  if (ov.width !== cv.width || ov.height !== cv.height) { ov.width = cv.width; ov.height = cv.height; }
+  const ctx = ov.getContext('2d');
+  ctx.clearRect(0, 0, ov.width, ov.height);
+  (_edit.layers || []).forEach((L, k) => {
+    _drawLayer(ctx, L);
+    if (k === _edit.layerSel) {
+      const s = _layerSize(L);
+      ctx.save();
+      ctx.translate(L.x, L.y); ctx.rotate((L.angle || 0) * Math.PI / 180);
+      ctx.strokeStyle = '#06c755'; ctx.lineWidth = Math.max(2, cv.width / 300); ctx.setLineDash([8, 6]);
+      ctx.strokeRect(-s.w / 2 - 6, -s.h / 2 - 6, s.w + 12, s.h + 12);
+      ctx.restore();
+    }
+  });
+  _applyView();
+  _editLayerPanelSync();
+}
+
+function _editLayerPanelSync() {
+  const panel = document.getElementById('editLayerPanel');
+  if (!panel || !_edit) return;
+  const Ls = _edit.layers || [];
+  panel.style.display = Ls.length ? '' : 'none';
+  const list = document.getElementById('editLayerList');
+  if (list) list.innerHTML = Ls.map((L, k) =>
+    `<button class="btn btn-sm ${k === _edit.layerSel ? 'btn-primary' : 'btn-secondary'}" onclick="editLayerSelect(${k})" style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${L.type === 'text' ? '🔤 ' + (L.text || '(空)') : '🖼 画像' + (k + 1)}</button>`).join('');
+  const sel = Ls[_edit.layerSel];
+  const props = document.getElementById('editLayerProps');
+  if (props) props.style.display = sel ? '' : 'none';
+  if (!sel) return;
+  const ti = document.getElementById('editLayerText');
+  if (ti) {
+    ti.style.display = sel.type === 'text' ? '' : 'none';
+    if (sel.type === 'text' && document.activeElement !== ti && ti.value !== sel.text) ti.value = sel.text;
+  }
+  const cw = document.getElementById('editLayerColorWrap'); if (cw) cw.style.display = sel.type === 'text' ? '' : 'none';
+  const ow = document.getElementById('editLayerOutlineWrap'); if (ow) ow.style.display = sel.type === 'text' ? '' : 'none';
+  const fb = document.getElementById('editLayerFlipBtn'); if (fb) fb.style.display = sel.type === 'image' ? '' : 'none';
+  const sz = document.getElementById('editLayerSizeCtl'); if (sz && document.activeElement !== sz) sz.value = Math.round(sel.pct || 100);
+  const an = document.getElementById('editLayerAngleCtl'); if (an && document.activeElement !== an) an.value = Math.round(sel.angle || 0);
+  if (sel.type === 'text') {
+    const cc = document.getElementById('editLayerColorCtl'); if (cc) cc.value = sel.color || '#333333';
+    const oc = document.getElementById('editLayerOutlineCtl'); if (oc) oc.checked = sel.outline !== false;
+  }
+}
+
+function _layerSel() { return _edit && _edit.layers ? _edit.layers[_edit.layerSel] : null; }
+
+// 🧩 画像レイヤーを追加
+async function editLayerImgFile(e) {
+  const f = (e.target.files || [])[0];
+  e.target.value = '';
+  if (!f || !_edit) return;
+  try {
+    let { dataUrl } = await normalizeImageFile(f, 1024);
+    if (confirm('画像の白い背景を透明にしますか？\n（白背景の写真・イラストを切り抜いて重ねたいときは OK）')) {
+      dataUrl = await removeBg(dataUrl, state.bgRemoveMode);
+    }
+    const img = await loadImage(dataUrl);
+    const cv = _edit.canvas;
+    const sfit = Math.min(cv.width * 0.5 / img.naturalWidth, cv.height * 0.5 / img.naturalHeight);
+    _edit.layers.push({ type: 'image', img, x: cv.width / 2, y: cv.height / 2, angle: 0, pct: 100, sfit, scale: sfit, flip: false });
+    _edit.layerSel = _edit.layers.length - 1;
+    _editLayerRender();
+  } catch (err) { alert('画像の読み込みに失敗しました：' + err.message); }
+}
+
+// 🔤 文字レイヤーを追加
+function editLayerAddText() {
+  if (!_edit) return;
+  const cv = _edit.canvas;
+  const s0 = Math.max(16, Math.round(Math.min(cv.width, cv.height) * 0.16));
+  _edit.layers.push({ type: 'text', text: 'テキスト', x: Math.round(cv.width / 2), y: Math.round(cv.height * 0.18), angle: 0, pct: 100, s0, size: s0, color: (document.getElementById('editColor') || {}).value || '#333333', outline: true });
+  _edit.layerSel = _edit.layers.length - 1;
+  _editLayerRender();
+  const ti = document.getElementById('editLayerText');
+  if (ti) { ti.focus(); ti.select(); }
+}
+
+function editLayerSelect(k) { if (!_edit) return; _edit.layerSel = k; _editLayerRender(); }
+function editLayerDeselect() { if (!_edit) return; _edit.layerSel = -1; _edit._layerDrag = null; _editLayerRender(); }
+function editLayerDelete() {
+  if (!_edit || _edit.layerSel < 0) return;
+  _edit.layers.splice(_edit.layerSel, 1);
+  _edit.layerSel = -1;
+  _editLayerRender();
+}
+function editLayerRaise(dir) {
+  if (!_edit || _edit.layerSel < 0) return;
+  const k = _edit.layerSel, j = k + dir;
+  if (j < 0 || j >= _edit.layers.length) return;
+  const t = _edit.layers[k]; _edit.layers[k] = _edit.layers[j]; _edit.layers[j] = t;
+  _edit.layerSel = j;
+  _editLayerRender();
+}
+function editLayerFlip() { const L = _layerSel(); if (L && L.type === 'image') { L.flip = !L.flip; _editLayerRender(); } }
+function editLayerSetText(v) { const L = _layerSel(); if (L && L.type === 'text') { L.text = v; _editLayerRender(); } }
+function editLayerSetColor(v) { const L = _layerSel(); if (L && L.type === 'text') { L.color = v; _editLayerRender(); } }
+function editLayerSetOutline(on) { const L = _layerSel(); if (L && L.type === 'text') { L.outline = !!on; _editLayerRender(); } }
+function editLayerSetAngle(v) { const L = _layerSel(); if (L) { L.angle = parseInt(v, 10) || 0; _editLayerRender(); } }
+function editLayerSetSize(v) {
+  const L = _layerSel(); if (!L) return;
+  L.pct = Math.max(10, Math.min(300, parseInt(v, 10) || 100));
+  if (L.type === 'image') L.scale = L.sfit * L.pct / 100;
+  else L.size = Math.max(8, Math.round(L.s0 * L.pct / 100));
+  _editLayerRender();
+}
+
+// ✅ 全レイヤーを絵に焼き込む（↩で1回戻せる）。保存・コマ切替時にも自動実行
+function editLayerFlatten() {
+  if (!_edit || !(_edit.layers || []).length) return;
+  _editSaveHistory();
+  for (const L of _edit.layers) _drawLayer(_edit.ctx, L);
+  _edit.layers = [];
+  _edit.layerSel = -1;
+  _edit._layerDrag = null;
+  _editLayerRender();
+  if (_edit.alphaShow) _editAlphaRefresh();
+}
+
+// ドラッグ移動（オーバーレイ上。レイヤー選択中のみ受け付ける）
+function _layerXY(e) {
+  const ov = document.getElementById('editLayerOverlay'), r = ov.getBoundingClientRect();
+  const t = e.touches && e.touches[0];
+  const cx = t ? t.clientX : e.clientX, cy = t ? t.clientY : e.clientY;
+  return { x: (cx - r.left) * (ov.width / r.width), y: (cy - r.top) * (ov.height / r.height) };
+}
+function _layerHit(L, x, y) {
+  const dx = x - L.x, dy = y - L.y, a = -(L.angle || 0) * Math.PI / 180;
+  const rx = dx * Math.cos(a) - dy * Math.sin(a), ry = dx * Math.sin(a) + dy * Math.cos(a);
+  const s = _layerSize(L);
+  return Math.abs(rx) <= s.w / 2 + 8 && Math.abs(ry) <= s.h / 2 + 8;
+}
+function editLayerDown(e) {
+  if (!_edit || _edit.layerSel < 0) return;
+  e.preventDefault();
+  const p = _layerXY(e);
+  const Ls = _edit.layers;
+  let hit = -1;
+  for (let k = Ls.length - 1; k >= 0; k--) { if (_layerHit(Ls[k], p.x, p.y)) { hit = k; break; } }
+  if (hit < 0) { editLayerDeselect(); return; } // 何もない所をタップ→選択解除してツールに戻る
+  if (hit !== _edit.layerSel) { _edit.layerSel = hit; _editLayerRender(); }
+  const L = Ls[_edit.layerSel];
+  _edit._layerDrag = { dx: p.x - L.x, dy: p.y - L.y };
+}
+function editLayerMove(e) {
+  if (!_edit || !_edit._layerDrag || _edit.layerSel < 0) return;
+  e.preventDefault();
+  const p = _layerXY(e);
+  const L = _edit.layers[_edit.layerSel];
+  L.x = p.x - _edit._layerDrag.dx;
+  L.y = p.y - _edit._layerDrag.dy;
+  _editLayerRender();
+}
+function editLayerUp() { if (_edit) _edit._layerDrag = null; }
+window.addEventListener('mouseup', editLayerUp);
+
 // ===== 🐾 スタンプ（コピー元の色・模様をなぞった場所に写す） =====
 function _editStampStatus() {
   const el = document.getElementById('editStampStatus');
@@ -2259,7 +2498,8 @@ async function editRemoveWhite(mode) {
 }
 async function applyEdit() {
   if (!_edit) return;
-  // 保存前に、貼り付け途中は確定・選択ハイライトの線は除去（焼き込まれないように）
+  // 保存前に、重ねたレイヤーは絵に焼き込み・貼り付け途中は確定・選択ハイライトの線は除去
+  if (_edit.layers && _edit.layers.length) editLayerFlatten();
   if (_edit.floating) editFloatingCommit();
   else if (_edit.sel && _edit.selSnap) _editClearSelState();
   const ei = _edit.i;
