@@ -6168,7 +6168,7 @@ async function exportAllData() {
       if (!confirm('保存済みセットがまだありません。\n（先に「💾 現在のセットを保存」で保存できます）\nこのまま設定だけのバックアップを作りますか？')) return;
     }
     const backup = { app: 'line-stamp-maker', version: 1, exportedAt: new Date().toISOString(), settings, sets };
-    const blob = new Blob([JSON.stringify(backup)], { type: 'application/json' });
+    const blob = _backupJsonBlob(backup);
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -6178,8 +6178,30 @@ async function exportAllData() {
     const mb = (blob.size / 1024 / 1024).toFixed(1);
     alert(`✓ 保存済みセット ${sets.length}件（約${mb}MB）をパソコンに書き出しました。\n\nこのファイルを大切に保管してください。\n・ブラウザのデータを消しても、このファイルから元に戻せます\n・別のパソコンでも「📂 復元」で読み込めます`);
   } catch (e) {
-    alert('バックアップに失敗しました：' + e.message);
+    alert('バックアップに失敗しました：' + (e.name ? e.name + ': ' : '') + e.message + '\n\n何度も失敗する場合は、保存セット一覧のいらないセットを🗑で減らしてから、もう一度お試しください。');
   }
+}
+
+// バックアップを1つの巨大文字列にせず、セットごとに分割してJSON Blobを作る。
+// （全体を一度にJSON.stringifyすると、保存セットが多い＝アニメのコマ画像などで数百MBに
+//   なったとき、ブラウザの文字列上限を超えて「Invalid string length」で失敗するため）
+function _backupJsonBlob(backup) {
+  const head = JSON.stringify({ app: backup.app, version: backup.version, exportedAt: backup.exportedAt, settings: backup.settings });
+  const parts = [head.slice(0, -1) + ',"sets":['];
+  let first = true, skipped = 0;
+  for (const s of (backup.sets || [])) {
+    try {
+      const js = JSON.stringify(s);
+      parts.push(first ? js : ',' + js);
+      first = false;
+    } catch (e) {
+      skipped++;
+      console.warn('バックアップ: セットの書き出しをスキップ:', s && s.name, e);
+    }
+  }
+  parts.push(']}');
+  if (skipped) alert(`⚠ ${skipped}件のセットが大きすぎて変換できなかったため、そのセットを除いてバックアップします。`);
+  return new Blob(parts, { type: 'application/json' });
 }
 
 // バックアップファイルを読み込んで、保存済みセットを復元（今ある分に追加）
