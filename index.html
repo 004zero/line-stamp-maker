@@ -5259,8 +5259,9 @@ function sheetSplitSmart(srcCanvas, cols, rows, tol = 40) {
     if (y < bx.minY) bx.minY = y; if (y > bx.maxY) bx.maxY = y;
     bx.count++;
   }
-  // コマ順（上→下・左→右）に、割り当てられたかたまりだけを透過PNGへ
-  const minCount = Math.max(30, N * 0.00005);
+  // コマ順（上→下・左→右）に、割り当てられたかたまりだけを透過PNGへ。
+  // 空コマ判定：コマ面積の1%以上の絵が無ければ「空」（グリッド線の消え残り等では1コマ作らない）
+  const minCount = Math.max(300, (w / cols) * (h / rows) * 0.01);
   const pieces = [];
   for (let cell = 0; cell < cells; cell++) {
     const bx = boxes[cell];
@@ -5300,7 +5301,7 @@ function sheetSplitPlain(srcCanvas, cols, rows, tol = 40) {
       const y0 = Math.round(r * h / rows), y1 = Math.round((r + 1) * h / rows);
       const bw = x1 - x0, bh = y1 - y0;
       // 空コマ判定
-      let n = 0; const need = Math.max(30, bw * bh * 0.001);
+      let n = 0; const need = Math.max(300, bw * bh * 0.01); // コマ面積の1%未満は空コマとみなす
       let empty = true;
       for (let y = y0; y < y1 && empty; y++) for (let x = x0; x < x1; x++) {
         const i = (y * w + x) * 4;
