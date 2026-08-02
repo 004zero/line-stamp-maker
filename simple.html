@@ -631,6 +631,7 @@
         <span style="font-size:12px;font-weight:700;color:#555">サイズ:</span>
         <button class="btn btn-secondary btn-sm" onclick="editScale(0.9)">➖ 縮小</button>
         <button class="btn btn-secondary btn-sm" onclick="editScale(1.1)">➕ 拡大</button>
+        <label style="font-size:12px;color:#555;display:inline-flex;align-items:center;gap:4px" title="スライダーで絵の大きさを自由に変えられます（10〜300%）。やり直すときは↩">大きさ<input type="range" id="editScaleRange" min="10" max="300" value="100" onmousedown="if(_edit&&!_edit.scaleBase)this.value=100" ontouchstart="if(_edit&&!_edit.scaleBase)this.value=100" oninput="editScaleTo(this.value)" style="width:110px;vertical-align:middle"><span id="editScaleVal" style="min-width:38px;display:inline-block">100%</span></label>
         <button class="btn btn-secondary btn-sm" onclick="editAutoFit()" title="キャラを検出して枠に対して標準サイズ・中央に揃える">📐 自動フィット</button>
         <span style="font-size:12px;font-weight:700;color:#555;margin-left:8px">位置:</span>
         <button class="btn btn-secondary btn-sm" onclick="editNudge(-20,0)" title="絵を左へ動かす（キーボードの←でもOK）">⬅</button>
@@ -1440,6 +1441,8 @@ function openEdit(i) {
     const fp = document.getElementById('editFloatPanel'); if (fp) fp.style.display = 'none';
     const pb = document.getElementById('editPasteBtn'); if (pb) pb.disabled = true;
     const ab = document.getElementById('editAlphaShowBtn'); if (ab) ab.innerHTML = '🔴 透過漏れを見る';
+    const sr = document.getElementById('editScaleRange'); if (sr) sr.value = 100;
+    const sv = document.getElementById('editScaleVal'); if (sv) sv.textContent = '100%';
     document.getElementById('editModal').classList.add('open');
     _applyView(); // モーダル表示後にもう一度：枠の実サイズが確定してから表示サイズを合わせる
     if (_editOpenWithAlpha) { _editOpenWithAlpha = false; editAlphaToggle(true); }
@@ -2845,6 +2848,34 @@ function editScale(f) {
   const w = cv.width * _edit.scaleFactor, h = cv.height * _edit.scaleFactor;
   ctx.clearRect(0, 0, cv.width, cv.height);
   ctx.drawImage(_edit.scaleBase, (cv.width - w) / 2, (cv.height - h) / 2, w, h);
+  _syncScaleUI();
+}
+
+// 大きさスライダー：絶対％で自由に変更（同じ操作セッション内は劣化しない）
+function editScaleTo(pct) {
+  if (!_edit) return;
+  pct = Math.max(10, Math.min(300, parseInt(pct, 10) || 100));
+  const cv = _edit.canvas, ctx = _edit.ctx;
+  if (!_edit.scaleBase) {
+    _editSaveHistory(); // スライダー操作1回分＝アンドゥ1回
+    const snap = document.createElement('canvas'); snap.width = cv.width; snap.height = cv.height;
+    snap.getContext('2d').drawImage(cv, 0, 0);
+    _edit.scaleBase = snap;
+    _edit.scaleFactor = 1;
+  }
+  _edit.scaleFactor = pct / 100;
+  const w = cv.width * _edit.scaleFactor, h = cv.height * _edit.scaleFactor;
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  ctx.drawImage(_edit.scaleBase, (cv.width - w) / 2, (cv.height - h) / 2, w, h);
+  _syncScaleUI();
+}
+function _syncScaleUI() {
+  if (!_edit) return;
+  const pct = Math.round((_edit.scaleFactor || 1) * 100);
+  const r = document.getElementById('editScaleRange');
+  if (r) r.value = Math.max(10, Math.min(300, pct));
+  const v = document.getElementById('editScaleVal');
+  if (v) v.textContent = pct + '%';
 }
 
 // 修正モーダル：背景をキャラの「後ろ」に敷く（destination-over・全面カバー）
