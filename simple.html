@@ -593,6 +593,7 @@
         <button class="btn btn-secondary btn-sm" onclick="editFixHoles()" title="絵の内側で透けてしまっている部分（穴・半透明）を、まわりの色で埋めて直す。外側の輪郭のなめらかさはそのまま">🩹 透けを直す</button>
         <button class="btn btn-secondary btn-sm" id="editAlphaShowBtn" onclick="editAlphaToggle()" title="LINE審査で弾かれる「透過漏れ」を赤く重ねて表示します（もう一度押すと消えます）。消しゴム等で直すたびに赤表示も更新されます">🔴 透過漏れを見る</button>
         <button class="btn btn-secondary btn-sm" onclick="editAlphaFix()" title="透過漏れ（背景の半透明ゴミ・見えないほど薄いピクセル）をワンタップでまとめて修正します（↩で戻せます）">🩹 透過漏れを自動修正</button>
+        <button class="btn btn-secondary btn-sm" onclick="editRemoveSpecks()" title="本体から離れた小さな点々・カス（背景消しの消え残りの緑のふち等）を、大きさを指定してまとめて削除します（↩で戻せます）">🧹 ちり一括そうじ</button>
         <button class="btn btn-secondary btn-sm" id="editAllFramesBtn" style="display:none" onclick="editApplyToAllFrames()" title="表示中のコマで行った消しゴム・ペンの修正を、他の全コマにも適用します">⧉ 全コマへ反映</button>
       </div>
       <div id="editSelPanel" style="display:none;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px;background:#eef7ff;border:1px solid #cfe6ff;border-radius:7px;padding:8px 10px">
@@ -2195,6 +2196,57 @@ function editAlphaFix() {
   alphaFixCanvas(_edit.canvas);
   if (_edit.alphaShow) _editAlphaRefresh();
   else editAlphaToggle(true); // 修正結果（✅表示）が見えるようにON
+}
+
+// 🧹 ちり一括そうじ：本体から離れた小さなかたまり（背景消しの消え残りの点々など）を
+// 連結成分ごとに数えて、指定サイズ以下を全部まとめて透明にする。一番大きな絵は必ず残す
+function editRemoveSpecks() {
+  if (!_edit) return;
+  const inp = prompt('どのくらいの大きさまでを「ちり」として消しますか？（ピクセル数）\n\n・小さな点々だけ → 200〜400\n・少し大きめのカスも → 1000〜2000\n\n消しすぎたら「↩ 元に戻す」で戻せます。', '400');
+  if (inp === null) return;
+  const maxA = Math.max(10, parseInt(inp, 10) || 400);
+  _editSaveHistory();
+  const cv = _edit.canvas, w = cv.width, h = cv.height, N = w * h;
+  const id = _edit.ctx.getImageData(0, 0, w, h), d = id.data;
+  const solid = new Uint8Array(N);
+  for (let p = 0; p < N; p++) if (d[p * 4 + 3] > 8) solid[p] = 1;
+  // 4連結の連結成分ラベリング（点々は1粒ずつ小さな成分になる）
+  const label = new Int32Array(N).fill(-1);
+  const sizes = [];
+  const q = [];
+  let nl = 0;
+  for (let p0 = 0; p0 < N; p0++) {
+    if (!solid[p0] || label[p0] >= 0) continue;
+    const lab = nl++;
+    let cnt = 0;
+    label[p0] = lab; q.length = 0; q.push(p0);
+    while (q.length) {
+      const p = q.pop(); cnt++;
+      const x = p % w, y = (p / w) | 0;
+      if (x + 1 < w && solid[p + 1] && label[p + 1] < 0) { label[p + 1] = lab; q.push(p + 1); }
+      if (x > 0 && solid[p - 1] && label[p - 1] < 0) { label[p - 1] = lab; q.push(p - 1); }
+      if (y + 1 < h && solid[p + w] && label[p + w] < 0) { label[p + w] = lab; q.push(p + w); }
+      if (y > 0 && solid[p - w] && label[p - w] < 0) { label[p - w] = lab; q.push(p - w); }
+    }
+    sizes.push(cnt);
+  }
+  if (!nl) { alert('絵が見つかりませんでした。'); return; }
+  const biggest = sizes.indexOf(Math.max(...sizes));
+  const kill = sizes.map((s, k) => k !== biggest && s <= maxA); // 一番大きな絵（本体）は必ず守る
+  let removed = 0, removedPx = 0;
+  for (let p = 0; p < N; p++) {
+    if (solid[p] && kill[label[p]]) {
+      const i = p * 4;
+      d[i] = d[i + 1] = d[i + 2] = d[i + 3] = 0;
+      removedPx++;
+    }
+  }
+  removed = kill.filter(Boolean).length;
+  _edit.ctx.putImageData(id, 0, 0);
+  if (_edit.alphaShow) _editAlphaRefresh();
+  alert(removed
+    ? `🧹 ${removed}個のちり（合計 ${removedPx.toLocaleString()}px）を消しました。\n・消えてほしいものが残っている → もう一度、大きい数字（例：1000〜2000）で\n・消えてほしくないものまで消えた → 「↩ 元に戻す」→ 小さい数字で`
+    : '🧹 消せるちりは見つかりませんでした。\nもう一度、大きめの数字（例：1000〜2000）で試してください。');
 }
 
 // 透過漏れ表示中は、消しゴム等の操作のたびに赤表示を追従させる
