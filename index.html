@@ -366,6 +366,8 @@
           <button class="btn btn-primary btn-sm" onclick="openRefLibrary()" title="これまでに作って「⭐保存」したスタンプ画像から、参考画像を選ぶ">📁 保存した画像から選ぶ</button>
           <button class="btn btn-primary btn-sm" onclick="assignRefsInOrder()" id="refAssignBtn" style="display:none" title="参考画像を1枚目→スタンプ01、2枚目→スタンプ02…と順番に各スタンプへ割り当てます。忠実度「そのまま同じ」で生成すると、その画像がそのままスタンプになります（無料）">➡ 参考画像を順番にスタンプへ割り当て</button>
           <button class="btn btn-secondary btn-sm" onclick="openCropFromRef()" id="refCropBtn" style="display:none">✂ 1コマを切り抜く</button>
+          <button class="btn btn-primary btn-sm" onclick="refAllToStamps()" id="refAllStampBtn" style="display:none" title="取り込んだ参考画像を、並んでいる順にAIを使わずそのまま全部スタンプにします（無料）">⚡ 全部そのままスタンプに</button>
+          <button class="btn btn-secondary btn-sm" onclick="refSelToStamps()" id="refSelStampBtn" style="display:none" title="サムネイル左上の☑にチェックを付けた参考画像だけを、そのままスタンプにします（無料）">☑ 選んだ分をスタンプに</button>
           <button class="btn btn-danger btn-sm" onclick="clearRefImage()" id="refClearBtn" style="display:none">✕ 解除</button>
         </div>
       </div>
@@ -1158,12 +1160,51 @@ async function saveStampToLibrary(i) {
 
 function clearRefImage() {
   state.refImages = [];
+  _refSel.clear();
   renderRefImage();
 }
 
 function removeRefImage(idx) {
   state.refImages.splice(idx, 1);
+  _refSel.clear();
   renderRefImage();
+}
+
+// ===== 参考画像 → そのままスタンプ化（AI不要・無料） =====
+const _refSel = new Set(); // ☑で選んだ参考画像（インデックス）
+function toggleRefSel(i, on) { if (on) _refSel.add(i); else _refSel.delete(i); }
+async function _refToStamps(list) {
+  const bgEl = document.getElementById('ownBgRemoveChk');
+  const bg = bgEl ? bgEl.checked : (state.bgRemove !== false);
+  let added = 0;
+  for (const im of list) {
+    let du = im.dataUrl;
+    try { if (bg) du = await removeBg(du, state.bgRemoveMode); } catch (_) {}
+    state.captions.push({
+      text: (im.name || 'stamp').replace(/\.[^.]+$/, ''),
+      emotion: '', composition: '', customPrompt: '', customStyle: '',
+      refImage: null, image: du.split(',')[1], status: 'done', error: null,
+    });
+    added++;
+  }
+  save(); renderCaptions(); renderStamps();
+  return added;
+}
+async function refAllToStamps() {
+  const imgs = state.refImages || [];
+  if (!imgs.length) { alert('先に参考画像を取り込んでください。'); return; }
+  if (!confirm(`参考画像 ${imgs.length}枚 を、並んでいる順にそのままスタンプにします（AIは使いません・無料）。\n白い背景の透明化は「背景を透明にする」の設定に従います。\n\nよろしいですか？`)) return;
+  const n = await _refToStamps(imgs);
+  alert(`⚡ ${n}枚をスタンプ一覧に追加しました！\n文字入れ・修正は各スタンプの✏ボタンからどうぞ。`);
+}
+async function refSelToStamps() {
+  const imgs = state.refImages || [];
+  const list = [..._refSel].sort((a, b) => a - b).map(i => imgs[i]).filter(Boolean);
+  if (!list.length) { alert('スタンプにしたい参考画像の左上の ☑ にチェックを付けてから、もう一度押してください。'); return; }
+  const n = await _refToStamps(list);
+  _refSel.clear();
+  renderRefImage();
+  alert(`☑ 選んだ ${n}枚をスタンプ一覧に追加しました！\n文字入れ・修正は各スタンプの✏ボタンからどうぞ。`);
 }
 
 function renderRefImage() {
@@ -1176,9 +1217,11 @@ function renderRefImage() {
   const imgs   = state.refImages || [];
   if (cropBtn) cropBtn.style.display = imgs.length ? '' : 'none';
   if (assignBtn) assignBtn.style.display = imgs.length ? '' : 'none';
+  const allStampBtn = document.getElementById('refAllStampBtn'); if (allStampBtn) allStampBtn.style.display = imgs.length ? '' : 'none';
+  const selStampBtn = document.getElementById('refSelStampBtn'); if (selStampBtn) selStampBtn.style.display = imgs.length ? '' : 'none';
   if (imgs.length) {
     let h = imgs.map((im, idx) =>
-      `<div class="ref-thumb"><img src="${im.dataUrl}" alt="ref" style="cursor:pointer" onclick="openCropFromRef(${idx})" title="クリックでこの画像から切り抜き"><button class="ref-thumb-x" onclick="removeRefImage(${idx})" title="この画像を外す">✕</button></div>`
+      `<div class="ref-thumb"><input type="checkbox" style="position:absolute;top:2px;left:2px;width:16px;height:16px;accent-color:#06c755;z-index:2;cursor:pointer" ${_refSel.has(idx) ? 'checked' : ''} onclick="event.stopPropagation()" onchange="toggleRefSel(${idx}, this.checked)" title="「☑ 選んだ分をスタンプに」で使う画像を選ぶ"><img src="${im.dataUrl}" alt="ref" style="cursor:pointer" onclick="openCropFromRef(${idx})" title="クリックでこの画像から切り抜き"><button class="ref-thumb-x" onclick="removeRefImage(${idx})" title="この画像を外す">✕</button></div>`
     ).join('');
     if (imgs.length < MAX_REF_IMAGES) {
       h += `<div class="ref-thumb" style="cursor:pointer" onclick="document.getElementById('refFile').click()" title="画像を追加"><span class="ref-thumb-empty">＋</span></div>`;
